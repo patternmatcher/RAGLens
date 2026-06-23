@@ -20,7 +20,7 @@ RAGLens is a local developer tool. The default binding is `127.0.0.1`, and the a
 - `/api/state` returns document metadata and previewable chunk evidence, but it does not include full document objects, raw embedding vectors, token terms, or term-count internals.
 - OpenAI-compatible provider API keys are read from environment variables only and are not exposed in `/api/state`, workspace settings, run history, OTel exports, or browser storage.
 - The optional Postgres `RAGLENS_DATABASE_URL` is read from environment variables only and is not exposed through the browser API.
-- OpenAI-compatible provider base URLs reject embedded credentials, query strings, fragments, and non-HTTPS remote transport. HTTP is accepted only for loopback hosts unless `RAGLENS_ALLOW_UNSAFE_PROVIDER_HTTP=true` is set.
+- OpenAI-compatible provider base URLs reject embedded credentials, query strings, fragments, and non-HTTPS remote transport. HTTP is accepted only for loopback hosts and Docker host aliases unless `RAGLENS_ALLOW_UNSAFE_PROVIDER_HTTP=true` is set.
 - Postgres SSL verifies certificates by default when `RAGLENS_DATABASE_SSL=true`; `RAGLENS_ALLOW_INSECURE_DATABASE_SSL=true` is an explicit local-test escape hatch.
 - Provider cost rates are optional operator-provided metadata and are exposed as non-secret configuration status in `/api/state`.
 - OTLP export URLs reject embedded credentials, query strings, fragments, and non-HTTPS remote transport. HTTP is accepted only for loopback hosts unless `RAGLENS_ALLOW_UNSAFE_OTEL_HTTP=true` is set.

@@ -804,14 +804,26 @@ test('provider base URL rejects credentialed or tokenized URLs', () => {
       }),
     /HTTPS URL/
   );
+  const localVllmConfig = loadConfig({
+    RAGLENS_HOST: '127.0.0.1',
+    RAGLENS_PORT: '0',
+    RAGLENS_DATA_DIR: './data-test',
+    RAGLENS_OPENAI_BASE_URL: 'http://127.0.0.1:11434/v1'
+  });
+  assert.equal(
+    localVllmConfig.openaiCompatible.baseUrl,
+    'http://127.0.0.1:11434/v1'
+  );
+  assert.equal(localVllmConfig.openaiCompatible.configured, true);
+  assert.equal(localVllmConfig.openaiCompatible.requiresApiKey, false);
   assert.equal(
     loadConfig({
       RAGLENS_HOST: '127.0.0.1',
       RAGLENS_PORT: '0',
       RAGLENS_DATA_DIR: './data-test',
-      RAGLENS_OPENAI_BASE_URL: 'http://127.0.0.1:11434/v1'
+      RAGLENS_OPENAI_BASE_URL: 'http://host.docker.internal:8000/v1'
     }).openaiCompatible.baseUrl,
-    'http://127.0.0.1:11434/v1'
+    'http://host.docker.internal:8000/v1'
   );
   assert.equal(
     loadConfig({

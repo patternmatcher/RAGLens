@@ -8,12 +8,12 @@ export async function generateAnswer({ question, prompt, retrieved, config = {} 
     return localGeneration(question, retrieved, config);
   }
 
-  if (!config.openaiCompatible?.apiKey) {
+  if (!hasOpenAICompatibleProvider(config.openaiCompatible)) {
     return localGeneration(question, retrieved, config, [
       {
         severity: 'medium',
         type: 'provider-not-configured',
-        message: 'OpenAI-compatible generation was selected, but no API key is configured. RAGLens used the local grounded generator.'
+        message: 'OpenAI-compatible generation was selected, but the provider is not configured. RAGLens used the local grounded generator.'
       }
     ]);
   }
@@ -57,6 +57,13 @@ async function generateOpenAICompatibleAnswer({ question, prompt, retrieved, con
   const timeoutMs = Number(provider.timeoutMs || 30_000);
   const baseUrl = provider.baseUrl || 'https://api.openai.com/v1';
   const model = config.model || provider.defaultModel || 'gpt-4.1-mini';
+  const headers = {
+    'Content-Type': 'application/json'
+  };
+
+  if (provider.apiKey) {
+    headers.Authorization = `Bearer ${provider.apiKey}`;
+  }
 
   if (typeof fetchImpl !== 'function') {
     throw new Error('Fetch is unavailable in this runtime.');
@@ -68,10 +75,7 @@ async function generateOpenAICompatibleAnswer({ question, prompt, retrieved, con
   try {
     const response = await fetchImpl(`${baseUrl.replace(/\/+$/, '')}/chat/completions`, {
       method: 'POST',
-      headers: {
-        Authorization: `Bearer ${provider.apiKey}`,
-        'Content-Type': 'application/json'
-      },
+      headers,
       body: JSON.stringify({
         model,
         temperature: Number(config.temperature || 0),
@@ -121,6 +125,10 @@ async function generateOpenAICompatibleAnswer({ question, prompt, retrieved, con
   } finally {
     clearTimeout(timeout);
   }
+}
+
+function hasOpenAICompatibleProvider(provider = {}) {
+  return Boolean(provider.configured || provider.apiKey);
 }
 
 function extractCitations(answerText, retrieved) {

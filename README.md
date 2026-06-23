@@ -183,13 +183,15 @@ A few config notes:
 
 - RAGLens refuses non-loopback binds without a 32+ character `RAGLENS_ADMIN_TOKEN` unless `RAGLENS_ALLOW_UNSAFE_PUBLIC_BIND=true` is explicitly set.
 - Requests must use an allowed `Host` header. By default that means `localhost`, `127.0.0.1`, `::1`, plus the configured bind host when it is not a wildcard. Use `RAGLENS_ALLOWED_HOSTS` for a trusted reverse proxy or custom hostname.
-- Leave `RAGLENS_OPENAI_API_KEY` empty for deterministic local generation. Set it and choose `openai-compatible` in Settings to call `/chat/completions` on an OpenAI-compatible provider.
-- Provider base URLs must use HTTPS unless they point at loopback. Use `RAGLENS_ALLOW_UNSAFE_PROVIDER_HTTP=true` only for trusted local test networks.
+- Leave `RAGLENS_OPENAI_API_KEY` empty for deterministic local generation, or for a local unauthenticated OpenAI-compatible server such as vLLM. Set it for keyed providers and choose `openai-compatible` in Settings to call `/chat/completions`.
+- Provider base URLs must use HTTPS unless they point at loopback or Docker host aliases. Use `RAGLENS_ALLOW_UNSAFE_PROVIDER_HTTP=true` only for trusted local test networks.
 - Retrieved chunks with prompt-injection-like or sensitive-data-like text stay local by default. A run must explicitly set `allowUnsafeProviderEgress=true` before that context is sent to a live provider.
 - Set `RAGLENS_COST_*` to your provider's current per-1M-token prices when you want nonzero cost estimates.
 - Set `RAGLENS_OTEL_EXPORT_URL` to an HTTPS OTLP/HTTP traces endpoint to export run traces after each query. HTTP is accepted only for loopback unless `RAGLENS_ALLOW_UNSAFE_OTEL_HTTP=true`; credentials, query strings, and fragments are rejected. `RAGLENS_OTEL_HEADERS` accepts a JSON object for collector auth headers and is never exposed through `/api/state`. Raw questions are not exported unless `RAGLENS_OTEL_INCLUDE_CONTENT=true`.
 - Set `RAGLENS_PDF_TEXT_COMMAND` to an absolute path for a trusted `pdftotext`-compatible binary. RAGLens runs it without a shell using `RAGLENS_PDF_TEXT_ARGS`, where `{input}` is replaced with a temporary PDF path, and falls back to the internal parser on failure.
 - Set `RAGLENS_STORAGE_DRIVER=postgres` and `RAGLENS_DATABASE_URL` for hosted Postgres persistence after applying `docs/database/postgres-pgvector.sql`. `RAGLENS_DATABASE_SSL=true` verifies server certificates by default; `RAGLENS_ALLOW_INSECURE_DATABASE_SSL=true` is only for trusted local test networks. The local default remains `json` and has no runtime dependencies; the Postgres deployment image must install the optional `pg` package.
+
+For local vLLM generation, point `RAGLENS_OPENAI_BASE_URL` at the vLLM `/v1` endpoint and choose `openai-compatible` in Settings. See `docs/vllm.md` for host and Docker Compose examples.
 
 ## Docker
 
@@ -204,6 +206,7 @@ Compose publishes RAGLens on `127.0.0.1:4177` by default, allows loopback hostna
 When an admin token is configured, JSON API routes other than `/api/health` require the token. The browser prompts for it and stores it in `sessionStorage` for the current browser session.
 
 Compose runs the app as a non-root user with a read-only root filesystem, dropped Linux capabilities, `no-new-privileges`, process/memory limits, and tmpfs for parser temp files.
+Compose also maps `host.docker.internal` to the host gateway so the app container can reach a local vLLM server at `http://host.docker.internal:8000/v1`.
 
 The Docker runtime check is `npm run docker:smoke`. It builds the image, starts a secured container, checks `/api/health`, confirms unauthenticated API requests are rejected, creates a run, and exports a run bundle.
 

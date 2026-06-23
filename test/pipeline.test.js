@@ -96,6 +96,55 @@ test('runRagInspection can use an OpenAI-compatible provider and map citations b
   assert.ok(run.trace.some((step) => step.detail.includes('openai-compatible-chat')));
 });
 
+test('runRagInspection can call a configured local OpenAI-compatible provider without auth', async () => {
+  const demo = createDemoState();
+  let authHeaderPresent = true;
+
+  const run = await runRagInspection({
+    question: 'What caused the unsupported delivery estimates?',
+    chunks: demo.chunks,
+    config: {
+      topK: 6,
+      maxClaims: 3,
+      provider: 'openai-compatible',
+      model: 'local-vllm-chat',
+      openaiCompatible: {
+        baseUrl: 'http://127.0.0.1:8000/v1',
+        configured: true,
+        timeoutMs: 5_000,
+        fetchImpl: async (url, options) => {
+          assert.equal(url, 'http://127.0.0.1:8000/v1/chat/completions');
+          authHeaderPresent = Object.hasOwn(options.headers, 'Authorization');
+          const body = JSON.parse(options.body);
+          const label = body.messages[1].content.match(/\[(D[A-Z0-9]+:C\d+)\]/)?.[1];
+
+          return Response.json({
+            id: 'chatcmpl_local_vllm',
+            model: body.model,
+            choices: [
+              {
+                finish_reason: 'stop',
+                message: {
+                  content: `The unsupported delivery estimates came from stale logistics guidance. [${label}]`
+                }
+              }
+            ],
+            usage: {
+              prompt_tokens: 91,
+              completion_tokens: 13,
+              total_tokens: 104
+            }
+          });
+        }
+      }
+    }
+  });
+
+  assert.equal(authHeaderPresent, false);
+  assert.equal(run.config.mode, 'openai-compatible-chat');
+  assert.equal(run.usage.provider.model, 'local-vllm-chat');
+});
+
 test('runRagInspection blocks live provider egress for risky retrieved chunks by default', async () => {
   const document = createDocument({
     title: 'Risky Policy',

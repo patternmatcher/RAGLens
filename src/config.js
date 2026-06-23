@@ -2,6 +2,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const DEFAULT_ALLOWED_HOSTS = ['localhost', '127.0.0.1', '::1'];
+const LOCAL_PROVIDER_HTTP_HOSTS = new Set([...DEFAULT_ALLOWED_HOSTS, 'host.docker.internal', 'gateway.docker.internal']);
 const WILDCARD_HOSTS = new Set(['0.0.0.0', '::']);
 
 export function loadConfig(env = process.env) {
@@ -22,6 +23,7 @@ export function loadConfig(env = process.env) {
     allowUnsafeHttp: allowUnsafeProviderHttp
   });
   const openaiApiKey = env.RAGLENS_OPENAI_API_KEY || '';
+  const openaiRequiresApiKey = providerRequiresApiKey(openaiBaseUrl);
   const openaiDefaultModel = env.RAGLENS_OPENAI_MODEL || 'gpt-4.1-mini';
   const openaiTimeoutMs = clampNumber(env.RAGLENS_OPENAI_TIMEOUT_MS, 1_000, 120_000, 30_000);
   const inputUsdPer1MTokens = clampNumber(env.RAGLENS_COST_INPUT_USD_PER_1M, 0, 10_000, 0);
@@ -78,7 +80,8 @@ export function loadConfig(env = process.env) {
       apiKey: openaiApiKey,
       defaultModel: openaiDefaultModel,
       timeoutMs: openaiTimeoutMs,
-      configured: Boolean(openaiApiKey)
+      requiresApiKey: openaiRequiresApiKey,
+      configured: Boolean(openaiApiKey || !openaiRequiresApiKey)
     },
     costRates: {
       inputUsdPer1MTokens,
@@ -216,7 +219,7 @@ function normalizeProviderBaseUrl(value, options = {}) {
     if (!['http:', 'https:'].includes(url.protocol)) {
       throw new Error('unsupported protocol');
     }
-    if (url.protocol === 'http:' && !isLoopbackHost(url.hostname) && !options.allowUnsafeHttp) {
+    if (url.protocol === 'http:' && !isLocalProviderHost(url.hostname) && !options.allowUnsafeHttp) {
       throw new Error('unsafe provider transport');
     }
     if (url.username || url.password || url.search || url.hash) {
@@ -224,8 +227,20 @@ function normalizeProviderBaseUrl(value, options = {}) {
     }
     return url.toString().replace(/\/$/, '');
   } catch {
-    throw new Error('RAGLENS_OPENAI_BASE_URL must be an HTTPS URL without credentials, query strings, or fragments. HTTP is allowed only for loopback hosts unless RAGLENS_ALLOW_UNSAFE_PROVIDER_HTTP=true.');
+    throw new Error('RAGLENS_OPENAI_BASE_URL must be an HTTPS URL without credentials, query strings, or fragments. HTTP is allowed only for loopback or Docker host aliases unless RAGLENS_ALLOW_UNSAFE_PROVIDER_HTTP=true.');
   }
+}
+
+function providerRequiresApiKey(baseUrl) {
+  try {
+    return !isLocalProviderHost(new URL(baseUrl).hostname);
+  } catch {
+    return true;
+  }
+}
+
+function isLocalProviderHost(host) {
+  return LOCAL_PROVIDER_HTTP_HOSTS.has(normalizeHostName(host));
 }
 
 function normalizeOtelEndpoint(value, options = {}) {

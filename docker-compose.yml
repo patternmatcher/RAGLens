@@ -3,6 +3,8 @@ services:
     build: .
     ports:
       - "127.0.0.1:4177:4177"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
       RAGLENS_HOST: 0.0.0.0
       RAGLENS_ALLOWED_HOSTS: ${RAGLENS_ALLOWED_HOSTS:-localhost,127.0.0.1}
