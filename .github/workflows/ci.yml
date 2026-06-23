@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [22.12.0, 24]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+      - run: npm run build
+      - run: npm run lint
+      - run: npm test
+      - run: npm run smoke
+      - run: npm run service:smoke
+      - run: npm run browser:smoke
+      - run: npm run docker:check
+      - run: npm run docker:smoke
+        env:
+          RAGLENS_REQUIRE_DOCKER: "1"
+      - run: npm run api:contract
+      - run: npm run postgres:contract
+      - run: npm run release:audit
+      - run: npm run eval

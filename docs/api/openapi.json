@@ -1,0 +1,1876 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "RAGLens Local API",
+    "version": "1.0.0",
+    "description": "Local-first API for inspecting RAG document ingestion, query runs, citations, evaluations, trace export, and portable run bundles."
+  },
+  "servers": [
+    {
+      "url": "http://127.0.0.1:4177",
+      "description": "Default local server"
+    }
+  ],
+  "security": [
+    {
+      "AdminTokenHeader": []
+    },
+    {
+      "AdminTokenBearer": []
+    }
+  ],
+  "paths": {
+    "/api/health": {
+      "get": {
+        "summary": "Health check",
+        "description": "Returns public health status. This route never requires an admin token.",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Service is healthy",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Health"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/state": {
+      "get": {
+        "summary": "Read active workspace state",
+        "description": "Returns active-project documents, previewable chunks, eval questions, summarized runs, provider status, and observability status. Chunk embedding vectors and term-count internals are not included.",
+        "responses": {
+          "200": {
+            "description": "Active project state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceState"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/api/projects": {
+      "post": {
+        "summary": "Create a project",
+        "description": "Creates and activates a local project workspace.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProjectInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created project and active workspace state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceState"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          }
+        }
+      }
+    },
+    "/api/projects/active": {
+      "patch": {
+        "summary": "Switch active project",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "projectId"
+                ],
+                "properties": {
+                  "projectId": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Active workspace state after switching projects",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceState"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          }
+        }
+      }
+    },
+    "/api/settings": {
+      "patch": {
+        "summary": "Update project settings",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SettingsInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated RAG defaults",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Settings"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          }
+        }
+      }
+    },
+    "/api/documents": {
+      "post": {
+        "summary": "Index a document",
+        "description": "Indexes TXT, Markdown, CSV, JSON, log, or best-effort PDF text into retrievable chunks.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DocumentInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Indexed document metadata and public chunk previews",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentCreateResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          }
+        }
+      }
+    },
+    "/api/documents/reindex": {
+      "post": {
+        "summary": "Reindex project documents",
+        "description": "Rebuilds chunks and embeddings for every document in the active or explicitly targeted project using the current chunk settings. Existing run evidence snapshots are preserved.",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "projectId": {
+                    "type": "string",
+                    "description": "Optional project id. Defaults to the active project."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Reindexed documents and public chunk previews",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReindexResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          }
+        }
+      }
+    },
+    "/api/ingestion-jobs": {
+      "get": {
+        "summary": "List document ingestion jobs",
+        "description": "Returns in-memory queued, processing, completed, and failed ingestion jobs for the active or explicitly targeted project. Job payloads never include raw source text, PDF bytes, or embeddings.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ProjectIdQuery"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Active project ingestion jobs",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IngestionJobList"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      },
+      "post": {
+        "summary": "Queue document ingestion",
+        "description": "Queues a document for dependency-free in-process indexing. Use POST /api/documents for synchronous indexing.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DocumentInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Queued ingestion job",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IngestionJob"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          }
+        }
+      }
+    },
+    "/api/ingestion-jobs/{id}": {
+      "get": {
+        "summary": "Read one ingestion job",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Id"
+          },
+          {
+            "$ref": "#/components/parameters/ProjectIdQuery"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Ingestion job status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IngestionJob"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/api/documents/{id}": {
+      "delete": {
+        "summary": "Delete a document",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Id"
+          },
+          {
+            "$ref": "#/components/parameters/ProjectIdQuery"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Deleted"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/api/query-runs": {
+      "post": {
+        "summary": "Run a RAG inspection",
+        "description": "Retrieves chunks, generates an answer, evaluates claims/citations, records trace steps, and saves the run.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QueryRunInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created RAG inspection run",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HydratedRun"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          }
+        }
+      }
+    },
+    "/api/query-runs/{id}": {
+      "get": {
+        "summary": "Read one hydrated run",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Id"
+          },
+          {
+            "$ref": "#/components/parameters/ProjectIdQuery"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Hydrated RAG inspection run",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HydratedRun"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/api/query-runs/{id}/feedback": {
+      "post": {
+        "summary": "Attach feedback to a run",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Id"
+          },
+          {
+            "$ref": "#/components/parameters/ProjectIdQuery"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FeedbackInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Saved run feedback",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Feedback"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          }
+        }
+      }
+    },
+    "/api/query-runs/{id}/otel": {
+      "get": {
+        "summary": "Export one run as OTLP JSON",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Id"
+          },
+          {
+            "$ref": "#/components/parameters/ProjectIdQuery"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OTLP trace export payload",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OtlpTrace"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/api/query-runs/{id}/bundle": {
+      "get": {
+        "summary": "Export one run as a portable RAGLens bundle",
+        "description": "Downloads a JSON attachment with the inspected run, retrieved evidence chunks, source metadata, metrics, warnings, and review summary. Full source document text and embedding vectors are not included.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Id"
+          },
+          {
+            "$ref": "#/components/parameters/ProjectIdQuery"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Portable run bundle",
+            "headers": {
+              "Content-Disposition": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunBundle"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/api/share/{id}": {
+      "get": {
+        "summary": "Read a shared run by id",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Id"
+          },
+          {
+            "$ref": "#/components/parameters/ProjectIdQuery"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Hydrated shared RAG inspection run",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HydratedRun"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/api/compare": {
+      "get": {
+        "summary": "Compare two runs",
+        "parameters": [
+          {
+            "name": "left",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "right",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ProjectIdQuery"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Side-by-side run comparison",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompareResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/api/eval-questions": {
+      "post": {
+        "summary": "Create or update an eval question",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EvalQuestionInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created or updated eval question",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EvalQuestion"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          }
+        }
+      }
+    },
+    "/api/eval-questions/{id}": {
+      "delete": {
+        "summary": "Delete an eval question",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Id"
+          },
+          {
+            "$ref": "#/components/parameters/ProjectIdQuery"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Deleted"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/api/demo/reset": {
+      "post": {
+        "summary": "Reset demo workspace",
+        "responses": {
+          "200": {
+            "description": "Reset demo workspace state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceState"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "AdminTokenHeader": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-RAGLens-Token",
+        "description": "Required when RAGLENS_ADMIN_TOKEN is configured."
+      },
+      "AdminTokenBearer": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "Required when RAGLENS_ADMIN_TOKEN is configured."
+      }
+    },
+    "parameters": {
+      "Id": {
+        "name": "id",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string"
+        }
+      },
+      "ProjectIdQuery": {
+        "name": "projectId",
+        "in": "query",
+        "required": false,
+        "description": "Optional project id for concurrent clients. Defaults to the active project.",
+        "schema": {
+          "type": "string"
+        }
+      }
+    },
+    "responses": {
+      "JsonObject": {
+        "description": "JSON object response",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        }
+      },
+      "Deleted": {
+        "description": "Delete result",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "deleted"
+              ],
+              "properties": {
+                "deleted": {
+                  "type": "boolean"
+                }
+              }
+            }
+          }
+        }
+      },
+      "Unauthorized": {
+        "description": "Admin token missing or invalid"
+      },
+      "Forbidden": {
+        "description": "Cross-origin mutation or forbidden request"
+      },
+      "NotFound": {
+        "description": "Requested project-scoped resource was not found"
+      },
+      "UnsupportedMediaType": {
+        "description": "Mutation request did not use application/json"
+      }
+    },
+    "schemas": {
+      "Health": {
+        "type": "object",
+        "required": [
+          "ok",
+          "name"
+        ],
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "ProjectInput": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          }
+        }
+      },
+      "DocumentInput": {
+        "type": "object",
+        "required": [
+          "title",
+          "sourceType"
+        ],
+        "properties": {
+          "projectId": {
+            "type": "string",
+            "description": "Optional project id. Defaults to the active project."
+          },
+          "title": {
+            "type": "string"
+          },
+          "sourceType": {
+            "type": "string",
+            "enum": [
+              "text",
+              "markdown",
+              "csv",
+              "json",
+              "log",
+              "pdf"
+            ]
+          },
+          "text": {
+            "type": "string"
+          },
+          "base64": {
+            "type": "string",
+            "description": "Base64 PDF bytes when sourceType is pdf."
+          }
+        }
+      },
+      "QueryRunInput": {
+        "type": "object",
+        "required": [
+          "question"
+        ],
+        "properties": {
+          "projectId": {
+            "type": "string",
+            "description": "Optional project id. Defaults to the active project."
+          },
+          "question": {
+            "type": "string"
+          },
+          "topK": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 20
+          },
+          "maxClaims": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 12
+          },
+          "temperature": {
+            "type": "number"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "retrievalMode": {
+            "type": "string",
+            "enum": [
+              "hybrid",
+              "keyword",
+              "vector"
+            ]
+          },
+          "rerank": {
+            "type": "boolean"
+          },
+          "promptTemplate": {
+            "type": "string"
+          },
+          "promptLoggingEnabled": {
+            "type": "boolean"
+          },
+          "allowUnsafeProviderEgress": {
+            "type": "boolean",
+            "description": "When true, allows live provider calls even if retrieved chunks contain prompt-injection-like or sensitive-data-like text. Defaults to false."
+          }
+        }
+      },
+      "SettingsInput": {
+        "type": "object",
+        "properties": {
+          "projectId": {
+            "type": "string",
+            "description": "Optional project id. Defaults to the active project."
+          },
+          "topK": {
+            "type": "integer"
+          },
+          "maxClaims": {
+            "type": "integer"
+          },
+          "chunkTokens": {
+            "type": "integer"
+          },
+          "overlapTokens": {
+            "type": "integer"
+          },
+          "temperature": {
+            "type": "number"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "retrievalMode": {
+            "type": "string"
+          },
+          "promptTemplate": {
+            "type": "string"
+          },
+          "promptLoggingEnabled": {
+            "type": "boolean"
+          },
+          "redactionEnabled": {
+            "type": "boolean"
+          },
+          "rerank": {
+            "type": "boolean"
+          }
+        }
+      },
+      "FeedbackInput": {
+        "type": "object",
+        "properties": {
+          "projectId": {
+            "type": "string",
+            "description": "Optional project id. Defaults to the active project."
+          },
+          "rating": {
+            "type": "string",
+            "enum": [
+              "up",
+              "down"
+            ]
+          },
+          "note": {
+            "type": "string"
+          },
+          "expectedAnswer": {
+            "type": "string"
+          }
+        }
+      },
+      "EvalQuestionInput": {
+        "type": "object",
+        "required": [
+          "question",
+          "expectedSource"
+        ],
+        "properties": {
+          "projectId": {
+            "type": "string",
+            "description": "Optional project id. Defaults to the active project."
+          },
+          "question": {
+            "type": "string"
+          },
+          "expectedSource": {
+            "type": "string"
+          },
+          "expectedAnswer": {
+            "type": "string"
+          }
+        }
+      },
+      "WorkspaceState": {
+        "type": "object",
+        "required": [
+          "activeProjectId",
+          "projects",
+          "documents",
+          "chunks",
+          "runs",
+          "evalQuestions",
+          "ingestionJobs",
+          "settings",
+          "providers",
+          "storage",
+          "observability",
+          "parsers"
+        ],
+        "properties": {
+          "activeProjectId": {
+            "type": "string"
+          },
+          "projects": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Project"
+            }
+          },
+          "documents": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SourceDocumentMetadata"
+            }
+          },
+          "chunks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EvidenceChunk"
+            }
+          },
+          "runs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RunSummary"
+            }
+          },
+          "evalQuestions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EvalQuestion"
+            }
+          },
+          "ingestionJobs": {
+            "$ref": "#/components/schemas/IngestionJobList"
+          },
+          "settings": {
+            "$ref": "#/components/schemas/Settings"
+          },
+          "providers": {
+            "$ref": "#/components/schemas/ProviderStatus"
+          },
+          "storage": {
+            "$ref": "#/components/schemas/StorageStatus"
+          },
+          "observability": {
+            "$ref": "#/components/schemas/ObservabilityStatus"
+          },
+          "parsers": {
+            "$ref": "#/components/schemas/ParserStatus"
+          }
+        }
+      },
+      "Project": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "createdAt"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "ownerId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          }
+        }
+      },
+      "Settings": {
+        "type": "object",
+        "required": [
+          "topK",
+          "maxClaims",
+          "chunkTokens",
+          "overlapTokens",
+          "temperature",
+          "provider",
+          "model",
+          "retrievalMode",
+          "promptTemplate",
+          "promptLoggingEnabled",
+          "redactionEnabled",
+          "rerank"
+        ],
+        "properties": {
+          "topK": {
+            "type": "integer"
+          },
+          "maxClaims": {
+            "type": "integer"
+          },
+          "chunkTokens": {
+            "type": "integer"
+          },
+          "overlapTokens": {
+            "type": "integer"
+          },
+          "temperature": {
+            "type": "number"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "retrievalMode": {
+            "type": "string"
+          },
+          "promptTemplate": {
+            "type": "string"
+          },
+          "promptLoggingEnabled": {
+            "type": "boolean"
+          },
+          "redactionEnabled": {
+            "type": "boolean"
+          },
+          "rerank": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ProviderStatus": {
+        "type": "object",
+        "required": [
+          "local",
+          "openaiCompatible",
+          "costRates"
+        ],
+        "properties": {
+          "local": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "openaiCompatible": {
+            "type": "object",
+            "required": [
+              "configured",
+              "endpointHost"
+            ],
+            "properties": {
+              "configured": {
+                "type": "boolean"
+              },
+              "endpointHost": {
+                "type": "string"
+              },
+              "defaultModel": {
+                "type": "string"
+              },
+              "timeoutMs": {
+                "type": "integer"
+              }
+            },
+            "not": {
+              "required": [
+                "baseUrl",
+                "apiKey"
+              ]
+            }
+          },
+          "costRates": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "StorageStatus": {
+        "type": "object",
+        "required": [
+          "driver",
+          "postgres"
+        ],
+        "properties": {
+          "driver": {
+            "type": "string",
+            "enum": [
+              "json",
+              "postgres"
+            ]
+          },
+          "postgres": {
+            "type": "object",
+            "required": [
+              "configured",
+              "poolMax",
+              "sslEnabled"
+            ],
+            "properties": {
+              "configured": {
+                "type": "boolean"
+              },
+              "poolMax": {
+                "type": "integer"
+              },
+              "sslEnabled": {
+                "type": "boolean"
+              }
+            },
+            "not": {
+              "required": [
+                "databaseUrl"
+              ]
+            }
+          }
+        }
+      },
+      "ObservabilityStatus": {
+        "type": "object",
+        "properties": {
+          "otlp": {
+            "type": "object",
+            "additionalProperties": true,
+            "not": {
+              "required": [
+                "headers"
+              ]
+            }
+          }
+        }
+      },
+      "ParserStatus": {
+        "type": "object",
+        "properties": {
+          "pdf": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "DocumentCreateResult": {
+        "type": "object",
+        "required": [
+          "document",
+          "chunks"
+        ],
+        "properties": {
+          "document": {
+            "$ref": "#/components/schemas/SourceDocumentMetadata"
+          },
+          "chunks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EvidenceChunk"
+            }
+          }
+        }
+      },
+      "ReindexResult": {
+        "type": "object",
+        "required": [
+          "documents",
+          "chunks",
+          "settings",
+          "reindexedAt"
+        ],
+        "properties": {
+          "documents": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SourceDocumentMetadata"
+            }
+          },
+          "chunks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EvidenceChunk"
+            }
+          },
+          "settings": {
+            "type": "object",
+            "required": [
+              "chunkTokens",
+              "overlapTokens"
+            ],
+            "properties": {
+              "chunkTokens": {
+                "type": "integer"
+              },
+              "overlapTokens": {
+                "type": "integer"
+              }
+            }
+          },
+          "reindexedAt": {
+            "type": "string"
+          }
+        }
+      },
+      "IngestionJobList": {
+        "type": "array",
+        "items": {
+          "$ref": "#/components/schemas/IngestionJob"
+        }
+      },
+      "IngestionJob": {
+        "type": "object",
+        "required": [
+          "id",
+          "projectId",
+          "title",
+          "sourceType",
+          "status",
+          "createdAt",
+          "updatedAt",
+          "document",
+          "chunkCount"
+        ],
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "input"
+              ]
+            },
+            {
+              "required": [
+                "text"
+              ]
+            },
+            {
+              "required": [
+                "base64"
+              ]
+            }
+          ]
+        },
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "projectId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "title": {
+            "type": "string"
+          },
+          "sourceType": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "processing",
+              "completed",
+              "failed"
+            ]
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          },
+          "startedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "completedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "document": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SourceDocumentMetadata"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "chunkCount": {
+            "type": "integer"
+          }
+        }
+      },
+      "RunSummary": {
+        "type": "object",
+        "required": [
+          "id",
+          "question",
+          "createdAt"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "question": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "latencyMs": {
+            "type": "integer"
+          },
+          "topChunkId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "metrics": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "config": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "HydratedRun": {
+        "type": "object",
+        "required": [
+          "id",
+          "projectId",
+          "question",
+          "retrieved",
+          "answer",
+          "evaluation",
+          "trace",
+          "usage",
+          "createdAt"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "projectId": {
+            "type": "string"
+          },
+          "question": {
+            "type": "string"
+          },
+          "retrieved": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/HydratedRetrievedChunk"
+            }
+          },
+          "answer": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "evaluation": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "prompt": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": true
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "trace": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "usage": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "createdAt": {
+            "type": "string"
+          }
+        }
+      },
+      "HydratedRetrievedChunk": {
+        "type": "object",
+        "required": [
+          "chunkId",
+          "rank",
+          "score"
+        ],
+        "properties": {
+          "chunkId": {
+            "type": "string"
+          },
+          "rank": {
+            "type": "integer"
+          },
+          "score": {
+            "type": "number"
+          },
+          "document": {
+            "$ref": "#/components/schemas/SourceDocumentMetadata"
+          },
+          "chunk": {
+            "$ref": "#/components/schemas/EvidenceChunk"
+          }
+        },
+        "additionalProperties": true
+      },
+      "Feedback": {
+        "type": "object",
+        "required": [
+          "id",
+          "rating",
+          "note",
+          "expectedAnswer",
+          "createdAt"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "rating": {
+            "type": "string",
+            "enum": [
+              "up",
+              "down"
+            ]
+          },
+          "note": {
+            "type": "string"
+          },
+          "expectedAnswer": {
+            "type": "string"
+          },
+          "redactions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "createdAt": {
+            "type": "string"
+          }
+        }
+      },
+      "EvalQuestion": {
+        "type": "object",
+        "required": [
+          "id",
+          "projectId",
+          "question",
+          "expectedSource"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "projectId": {
+            "type": "string"
+          },
+          "question": {
+            "type": "string"
+          },
+          "expectedSource": {
+            "type": "string"
+          },
+          "expectedAnswer": {
+            "type": "string"
+          },
+          "redactions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          }
+        }
+      },
+      "CompareResult": {
+        "type": "object",
+        "required": [
+          "left",
+          "right",
+          "deltas",
+          "configDiffs",
+          "retrieval",
+          "answers",
+          "warnings"
+        ],
+        "properties": {
+          "left": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "right": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "deltas": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "configDiffs": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "retrieval": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "answers": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "warnings": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "OtlpTrace": {
+        "type": "object",
+        "required": [
+          "resourceSpans"
+        ],
+        "properties": {
+          "resourceSpans": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "spans": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        }
+      },
+      "RunBundle": {
+        "type": "object",
+        "required": [
+          "schema",
+          "exportedAt",
+          "run",
+          "evidence",
+          "review"
+        ],
+        "properties": {
+          "schema": {
+            "const": "raglens.run-bundle.v1"
+          },
+          "exportedAt": {
+            "type": "string"
+          },
+          "project": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "run": {
+            "type": "object",
+            "description": "Sanitized hydrated run. Full prompt text is omitted from portable bundles; when prompt metadata is present it does not contain prompt.text.",
+            "properties": {
+              "prompt": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "not": {
+                  "required": [
+                    "text"
+                  ]
+                }
+              }
+            },
+            "additionalProperties": true
+          },
+          "evidence": {
+            "type": "object",
+            "required": [
+              "documents",
+              "chunks"
+            ],
+            "properties": {
+              "documents": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/SourceDocumentMetadata"
+                }
+              },
+              "chunks": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/EvidenceChunk"
+                }
+              }
+            }
+          },
+          "review": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "SourceDocumentMetadata": {
+        "type": "object",
+        "required": [
+          "id",
+          "projectId",
+          "title"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "projectId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "title": {
+            "type": "string"
+          },
+          "sourceType": {
+            "type": "string"
+          },
+          "checksum": {
+            "type": "string"
+          },
+          "wordCount": {
+            "type": "integer"
+          },
+          "status": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string"
+          }
+        },
+        "not": {
+          "required": [
+            "text"
+          ]
+        }
+      },
+      "EvidenceChunk": {
+        "type": "object",
+        "required": [
+          "id",
+          "text"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "documentId": {
+            "type": "string"
+          },
+          "documentTitle": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "section": {
+            "type": "string"
+          },
+          "page": {
+            "type": "integer"
+          },
+          "tokenCount": {
+            "type": "integer"
+          },
+          "embeddingModel": {
+            "type": "string"
+          },
+          "embeddedAt": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "not": {
+          "required": [
+            "embedding"
+          ]
+        }
+      }
+    }
+  }
+}

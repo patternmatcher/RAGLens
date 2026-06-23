@@ -1,0 +1,11 @@
+node_modules/
+data/
+data-*/
+.env
+.env.*
+!.env.example
+.DS_Store
+Thumbs.db
+npm-debug.log*
+coverage/
+corpora/

@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>RAGLens</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand-block">
+          <div class="brand-mark" aria-hidden="true">
+            <span></span>
+            <span></span>
+            <span></span>
+          </div>
+          <div>
+            <div class="brand-name">RAGLens</div>
+            <div class="brand-subtitle">RAG inspection</div>
+          </div>
+        </div>
+
+        <nav class="nav-list" aria-label="Primary">
+          <button class="nav-button active" data-view="dashboard">Dashboard</button>
+          <button class="nav-button" data-view="documents">Documents</button>
+          <button class="nav-button" data-view="workbench">Workbench</button>
+          <button class="nav-button" data-view="inspector">Inspector</button>
+          <button class="nav-button" data-view="compare">Compare</button>
+          <button class="nav-button" data-view="evals">Eval Set</button>
+          <button class="nav-button" data-view="settings">Settings</button>
+        </nav>
+
+        <div class="sidebar-footer">
+          <div class="tiny-label">Mode</div>
+          <div class="status-pill">Local extractive</div>
+        </div>
+      </aside>
+
+      <main class="main-shell">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow" id="page-eyebrow">Demo RAG workspace</p>
+            <h1 id="page-title">Dashboard</h1>
+          </div>
+          <div class="topbar-actions">
+            <label class="project-switcher">
+              <span>Project</span>
+              <select id="project-select"></select>
+            </label>
+            <button class="ghost-button" id="new-project-button" type="button">New Project</button>
+            <button class="ghost-button" id="refresh-button" type="button">Refresh</button>
+            <button class="danger-button" id="reset-demo-button" type="button">Reset Demo</button>
+          </div>
+        </header>
+
+        <section id="app" class="view-host" aria-live="polite"></section>
+      </main>
+    </div>
+
+    <div id="toast" class="toast" role="status" aria-live="polite" aria-atomic="true" hidden></div>
+    <script src="/app.js" type="module"></script>
+  </body>
+</html>

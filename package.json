@@ -1,0 +1,42 @@
+{
+  "name": "raglens",
+  "version": "1.0.0",
+  "description": "Local-first RAG inspection dashboard for debugging retrieval, grounding, citations, and RAG failure modes.",
+  "type": "module",
+  "private": true,
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node scripts/dev.js",
+    "build": "node scripts/check-syntax.js",
+    "lint": "node scripts/lint.js",
+    "test": "node --test",
+    "eval": "node scripts/rag-eval.js",
+    "corpus:fetch": "node scripts/corpus-fetch.js",
+    "corpus:eval": "node scripts/corpus-eval.js",
+    "corpus:app-demo": "node scripts/corpus-app-demo.js",
+    "smoke": "node scripts/smoke.js",
+    "service:smoke": "node scripts/service-smoke.js",
+    "browser:smoke": "node scripts/browser-smoke.js",
+    "docker:check": "node scripts/docker-check.js",
+    "docker:smoke": "node scripts/docker-smoke.js",
+    "api:contract": "node scripts/api-contract.js",
+    "postgres:contract": "node scripts/postgres-contract.js",
+    "postgres:export": "node scripts/postgres-export.js",
+    "release:audit": "node scripts/release-audit.js",
+    "doctor": "node scripts/release-doctor.js",
+    "preflight": "npm run build && npm run lint && npm test && npm run smoke && npm run service:smoke && npm run browser:smoke && npm run docker:check && npm run docker:smoke && npm run api:contract && npm run postgres:contract && npm run release:audit && npm run eval",
+    "seed": "node scripts/seed-demo.js"
+  },
+  "keywords": [
+    "rag",
+    "retrieval-augmented-generation",
+    "llm-observability",
+    "ai-evaluation",
+    "citations",
+    "local-first"
+  ],
+  "license": "MIT"
+}
