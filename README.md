@@ -6,6 +6,22 @@ The app runs without API keys, databases, or external services. The repo include
 
 ![RAGLens dashboard](docs/assets/dashboard.png)
 
+## Relationship To TraceLens
+
+TraceLens is the main project in the stack. It is the enterprise monitoring and governance layer for trace artifacts, policy gates, eval diffs, review workflows, SLO reports, model-serving overlays, and redacted incident review.
+
+RAGLens is the companion RAG workbench. It is where you upload documents, tune chunking and retrieval, run questions, inspect citations, compare local runs, and produce concrete artifacts from a working RAG pipeline. It is deliberately smaller than TraceLens.
+
+Use RAGLens when you want to build and inspect a RAG run. Use TraceLens when you want to operate, govern, and explain many RAG or agent runs across teams, releases, models, and private open-weight deployments.
+
+The current handoff is practical:
+
+- `GET /api/query-runs/:id/otel` exports OTLP-style telemetry that TraceLens can import through its OpenInference/OTLP path.
+- `GET /api/query-runs/:id/bundle` exports a portable local run bundle for reviewer handoff and future richer adapters.
+- An external claim verifier can sit between them when you want stronger claim decomposition before TraceLens routes failures.
+
+See `docs/tracelens-positioning.md` for the boundary in more detail.
+
 ## What It Does
 
 - Document indexing for TXT, Markdown, CSV, JSON, logs, and best-effort PDF text, including common Flate-compressed text streams.

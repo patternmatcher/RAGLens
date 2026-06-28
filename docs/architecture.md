@@ -53,6 +53,12 @@ The local app persists to `data/raglens.json` for zero-dependency demos. Set `RA
 
 `GET /api/query-runs/:id/bundle` exports a project-scoped JSON bundle for one inspected run. Project-scoped read and mutation endpoints accept an optional `projectId` query/body field so concurrent clients do not have to rely on the instance-wide active project pointer. Project settings are scoped the same way, so chunking, model, prompt, and retrieval defaults follow the targeted project. The bundle includes the hydrated run, retrieved chunk text, source document metadata, evaluation metrics, warning types, and a review summary. Full prompt text is omitted from portable bundles even when prompt logging was enabled for the original run.
 
+## TraceLens Boundary
+
+RAGLens owns the local run creation loop: documents, chunks, retrieval, prompt controls, answer generation, citations, eval checks, and the inspector UI. TraceLens is the main monitoring and governance layer for the wider stack. It owns trace artifact validation, release gates, eval diffs, review workflows, SLOs, redacted bundles, vLLM overlays, and fleet-level reporting.
+
+For a handoff, export OTLP from `GET /api/query-runs/:id/otel` and import it through TraceLens' OpenInference/OTLP path. Use the RAGLens run bundle when a reviewer needs the local evidence package or when building a richer bundle adapter.
+
 ## Generation Modes
 
 The default mode favors reliability and inspectability over model cleverness. The local answer generator makes the retrieval and evaluation flow easy to test without API keys or model nondeterminism.
