@@ -157,3 +157,30 @@ test('expected answer coverage flags right-source wrong-answer eval failures', (
   assert.ok(evaluation.expectedAnswer.missingTerms.includes('manual'));
   assert.ok(evaluation.warnings.some((warning) => warning.type === 'expected-answer-mismatch'));
 });
+
+test('trailing citation labels do not become empty unsupported claims', () => {
+  const retrieved = [
+    {
+      rank: 1,
+      score: 0.9,
+      coverage: 1,
+      chunk: {
+        id: 'chk_policy',
+        documentTitle: 'Policy',
+        terms: ['refund', 'window', 'thirty', 'days'],
+        text: 'The refund window is thirty days.'
+      }
+    }
+  ];
+  const evaluation = evaluateRun({
+    question: 'What is the refund window?',
+    answerText: 'The refund window is thirty days. [DTEST:C1]',
+    citations: [{ claimIndex: 0, chunkId: 'chk_policy', label: 'DTEST:C1' }],
+    retrieved
+  });
+
+  assert.equal(evaluation.claims.length, 1);
+  assert.equal(evaluation.claims[0].status, 'supported');
+  assert.equal(evaluation.metrics.citationCoverage, 1);
+  assert.equal(evaluation.warnings.some((warning) => warning.type === 'unsupported-claim'), false);
+});

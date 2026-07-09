@@ -2,12 +2,12 @@ import { spawn } from 'node:child_process';
 import { mkdtemp } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { findOpenPort, stopChild, trackChild, waitForHealth } from './smoke-utils.js';
+import { findOpenPort, stopChild, trackChild, waitForHealth } from './check-utils.js';
 
 const dataDir = await mkdtemp(path.join(os.tmpdir(), 'raglens-service-'));
 const port = await findOpenPort();
 const baseUrl = `http://127.0.0.1:${port}`;
-const adminToken = 'service-smoke-token';
+const adminToken = 'service-check-token';
 const server = spawn(process.execPath, ['src/index.js'], {
   cwd: process.cwd(),
   env: {
@@ -71,7 +71,7 @@ try {
   });
   assert(shared.id === run.id, 'share endpoint did not return the same run');
 
-  console.log(`Service smoke passed at ${baseUrl}.`);
+  console.log(`Service check passed at ${baseUrl}.`);
 } finally {
   await stopChild(server);
 }

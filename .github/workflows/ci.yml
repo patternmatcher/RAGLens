@@ -22,11 +22,11 @@ jobs:
       - run: npm run build
       - run: npm run lint
       - run: npm test
-      - run: npm run smoke
-      - run: npm run service:smoke
-      - run: npm run browser:smoke
+      - run: npm run integration:check
+      - run: npm run service:check
+      - run: npm run browser:check
       - run: npm run docker:check
-      - run: npm run docker:smoke
+      - run: npm run docker:runtime
         env:
           RAGLENS_REQUIRE_DOCKER: "1"
       - run: npm run api:contract

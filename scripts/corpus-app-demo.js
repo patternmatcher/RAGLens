@@ -4,7 +4,7 @@ import path from 'node:path';
 import { loadConfig } from '../src/config.js';
 import { createServer } from '../src/http/server.js';
 import { RaglensStore } from '../src/services/store.js';
-import { findOpenPort } from './smoke-utils.js';
+import { findOpenPort } from './check-utils.js';
 
 const NORMALIZED_DIR = path.join('corpora', 'normalized');
 const RESULTS_DIR = path.join('corpora', 'results');

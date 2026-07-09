@@ -5,7 +5,7 @@ import { mkdtemp } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-const dataDir = await mkdtemp(path.join(os.tmpdir(), 'raglens-smoke-'));
+const dataDir = await mkdtemp(path.join(os.tmpdir(), 'raglens-integration-check-'));
 const config = loadConfig({
   RAGLENS_HOST: '127.0.0.1',
   RAGLENS_PORT: '0',
@@ -52,7 +52,7 @@ try {
   assert(comparison.deltas.length >= 4, 'comparison did not produce metric deltas');
   assert(page.headers.get('x-content-type-options') === 'nosniff', 'security headers missing');
 
-  console.log('Smoke check passed.');
+  console.log('Integration check passed.');
 } finally {
   await new Promise((resolve) => server.close(resolve));
 }

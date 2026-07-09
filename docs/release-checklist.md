@@ -31,8 +31,8 @@ Manual checks:
 - Download a Run Bundle from the Inspector and confirm the JSON contains `raglens.run-bundle.v1`, retrieved evidence chunks, source metadata, and no full source document text, embedding vectors, or term-count internals.
 - If `RAGLENS_ADMIN_TOKEN` is set, confirm `/api/state` returns 401 without a token and the browser loads data after setting the token in Settings or responding to the token prompt.
 - Confirm `README.md` still reflects the current UI.
-- If Docker is installed, run `npm run docker:smoke`. You can also set `RAGLENS_ADMIN_TOKEN` in a local `.env`, run `docker compose up --build`, and confirm `/api/health` returns `{ "ok": true }`.
-- For release tags, run `RAGLENS_REQUIRE_DOCKER=1 npm run docker:smoke` or use CI so the Docker runtime check is required.
+- If Docker is installed, run `npm run docker:runtime`. You can also set `RAGLENS_ADMIN_TOKEN` in a local `.env`, run `docker compose up --build`, and confirm `/api/health` returns `{ "ok": true }`.
+- For release tags, run `RAGLENS_REQUIRE_DOCKER=1 npm run docker:runtime` or use CI so the Docker runtime check is required.
 - For hosted persistence review, apply `docs/database/postgres-pgvector.sql` in a Postgres database with pgvector, install the optional `pg` package in the deployment image, run once with `RAGLENS_STORAGE_DRIVER=postgres` and `RAGLENS_DATABASE_URL`, then apply the output from `npm run postgres:export -- --demo` if you want demo seed data.
 
 Repository checks:

@@ -1,19 +1,19 @@
 import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
-import { findOpenPort, waitForHealth } from './smoke-utils.js';
+import { findOpenPort, waitForHealth } from './check-utils.js';
 
 const execFileAsync = promisify(execFile);
 const docker = process.env.RAGLENS_DOCKER || 'docker';
-const tag = `raglens:smoke-${Date.now()}`;
-const containerName = `raglens-smoke-${Date.now()}`;
-const adminToken = 'docker-smoke-token-with-32-plus-characters';
+const tag = `raglens:runtime-check-${Date.now()}`;
+const containerName = `raglens-runtime-check-${Date.now()}`;
+const adminToken = 'docker-runtime-token-with-32-plus-characters';
 const port = await findOpenPort();
 const baseUrl = `http://127.0.0.1:${port}`;
 let containerStarted = false;
 
 try {
   if (!(await dockerAvailable())) {
-    const message = 'Docker smoke skipped: Docker CLI/daemon is unavailable.';
+    const message = 'Docker runtime check skipped: Docker CLI/daemon is unavailable.';
     if (process.env.CI === 'true' || process.env.RAGLENS_REQUIRE_DOCKER === '1') {
       throw new Error(message);
     }
@@ -77,7 +77,7 @@ try {
   assert(bundle.schema === 'raglens.run-bundle.v1', 'container bundle export returned the wrong schema');
   assert(bundle.evidence.chunks.length > 0, 'container bundle export did not include retrieved chunks');
 
-  console.log(`Docker smoke passed at ${baseUrl}.`);
+  console.log(`Docker runtime check passed at ${baseUrl}.`);
 } finally {
   if (containerStarted) {
     await execFileAsync(docker, ['rm', '-f', containerName]).catch(() => {});

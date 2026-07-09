@@ -20,7 +20,7 @@ RAGLens is the local RAG workbench. It is best for creating a real run from docu
 
 ## Handoff
 
-The simplest handoff is telemetry:
+The simplest handoff is rich OTLP telemetry:
 
 ```bash
 curl http://127.0.0.1:4177/api/query-runs/<run-id>/otel > raglens-otel.json
@@ -31,6 +31,10 @@ Then import that OTLP-style payload in TraceLens:
 ```bash
 node src/cli.js import-openinference raglens-otel.json --out exports/raglens-trace.json
 ```
+
+The contract preserves the rewritten query, retrieval documents and scores, prompt context ids, answer claims and citations, evaluation metrics, usage, privacy posture, and model identity. Raw query, prompt, evidence, answer, and claim text remain opt-in through `RAGLENS_OTEL_INCLUDE_CONTENT=true`.
+
+For an end-to-end demonstration, run `npm run stack:demo`. It creates a real baseline and stale-source candidate, imports both, applies the TraceLens release policy, and verifies a redacted review bundle.
 
 RAGLens also exposes a richer local bundle:
 

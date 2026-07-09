@@ -56,9 +56,9 @@ const pipeline = await readText('src/rag/pipeline.js');
 const evaluator = await readText('src/rag/evaluator.js');
 const query = await readText('src/rag/query.js');
 const lint = await readText('scripts/lint.js');
-const browserSmoke = await readText('scripts/browser-smoke.js');
+const browserCheck = await readText('scripts/browser-check.js');
 const apiContract = await readText('scripts/api-contract.js');
-const dockerSmoke = await readText('scripts/docker-smoke.js');
+const dockerRuntime = await readText('scripts/docker-runtime.js');
 const releaseDoctor = await readText('scripts/release-doctor.js');
 const openapi = await readText('docs/api/openapi.json');
 const postgresContract = await readText('scripts/postgres-contract.js');
@@ -71,7 +71,7 @@ const ingestionWorker = await readText('src/services/ingestion-worker.js');
 
 requireText(packageJson, '"release:audit": "node scripts/release-audit.js"', 'package exposes release:audit script');
 requireText(packageJson, '"api:contract": "node scripts/api-contract.js"', 'package exposes api:contract script');
-requireText(packageJson, '"docker:smoke": "node scripts/docker-smoke.js"', 'package exposes docker:smoke script');
+requireText(packageJson, '"docker:runtime": "node scripts/docker-runtime.js"', 'package exposes docker:runtime script');
 requireText(packageJson, '"corpus:fetch": "node scripts/corpus-fetch.js"', 'package exposes corpus:fetch script');
 requireText(packageJson, '"corpus:eval": "node scripts/corpus-eval.js"', 'package exposes corpus:eval script');
 requireText(packageJson, '"corpus:app-demo": "node scripts/corpus-app-demo.js"', 'package exposes corpus:app-demo script');
@@ -83,13 +83,13 @@ requireText(packageJson, 'npm run release:audit', 'preflight runs release audit'
 requireText(packageJson, 'npm run lint', 'preflight runs lint hygiene gate');
 requireText(packageJson, 'npm run api:contract', 'preflight runs API contract check');
 requireText(packageJson, 'npm run postgres:contract', 'preflight runs Postgres schema contract check');
-requireText(packageJson, 'npm run browser:smoke', 'preflight runs browser smoke');
-requireText(packageJson, 'npm run docker:smoke', 'preflight runs Docker runtime smoke when Docker is available');
-for (const script of ['build', 'lint', 'test', 'smoke', 'service:smoke', 'browser:smoke', 'docker:check', 'docker:smoke', 'api:contract', 'postgres:contract', 'postgres:export', 'doctor', 'eval', 'corpus:fetch', 'corpus:eval', 'corpus:app-demo']) {
+requireText(packageJson, 'npm run browser:check', 'preflight runs browser check');
+requireText(packageJson, 'npm run docker:runtime', 'preflight runs Docker runtime check when Docker is available');
+for (const script of ['build', 'lint', 'test', 'integration:check', 'service:check', 'browser:check', 'docker:check', 'docker:runtime', 'api:contract', 'postgres:contract', 'postgres:export', 'doctor', 'eval', 'corpus:fetch', 'corpus:eval', 'corpus:app-demo']) {
   requireText(packageJson, `"${script}"`, `package exposes ${script}`);
 }
 
-for (const command of ['npm run build', 'npm run lint', 'npm test', 'npm run smoke', 'npm run service:smoke', 'npm run browser:smoke', 'npm run docker:check', 'npm run docker:smoke', 'npm run api:contract', 'npm run postgres:contract', 'npm run release:audit', 'npm run eval']) {
+for (const command of ['npm run build', 'npm run lint', 'npm test', 'npm run integration:check', 'npm run service:check', 'npm run browser:check', 'npm run docker:check', 'npm run docker:runtime', 'npm run api:contract', 'npm run postgres:contract', 'npm run release:audit', 'npm run eval']) {
   requireText(ci, command, `CI runs ${command}`);
 }
 for (const phrase of ['node-version: [22.12.0, 24]', 'matrix.node-version']) {
@@ -153,7 +153,7 @@ for (const phrase of [
   'RAGLENS_OTEL_INCLUDE_CONTENT',
   'RAGLENS_ALLOW_INSECURE_DATABASE_SSL',
   'Docker Compose',
-  'headless browser',
+  'browser and repository review',
   'npm run lint',
   'npm run doctor',
   'npm run corpus:fetch',
@@ -260,11 +260,11 @@ for (const phrase of ['Treat retrieved context as untrusted evidence', 'Do not f
 for (const phrase of ['lintText', 'runLint', 'localStorage', 'focused-test', 'innerHTML', 'insertAdjacentHTML', 'public-secret-surface']) {
   requireText(lint, phrase, `lint script includes ${phrase}`);
 }
-for (const phrase of ['createSmokeRun', 'raglens.run-bundle.v1', '#run=', 'Run Bundle', 'mobileScreenshotPath', 'width: 390']) {
-  requireText(browserSmoke, phrase, `browser smoke covers ${phrase}`);
+for (const phrase of ['createCheckRun', 'raglens.run-bundle.v1', '#run=', 'Run Bundle', 'mobileScreenshotPath', 'width: 390']) {
+  requireText(browserCheck, phrase, `browser check covers ${phrase}`);
 }
 for (const phrase of ['dockerAvailable', 'Docker image build', 'container exposed state without an admin token', 'raglens.run-bundle.v1', 'RAGLENS_REQUIRE_DOCKER']) {
-  requireText(dockerSmoke, phrase, `Docker smoke covers ${phrase}`);
+  requireText(dockerRuntime, phrase, `Docker runtime check covers ${phrase}`);
 }
 for (const phrase of ['createReleaseDoctorReport', 'Git is unavailable', 'Docker is unavailable', 'RAGLENS_DATABASE_URL', 'safeUrlHost', 'generatedDataDirs', 'strict', 'trackedGeneratedData', 'dirtyReleaseFiles', 'preflight runs lint']) {
   requireText(releaseDoctor, phrase, `release doctor includes ${phrase}`);

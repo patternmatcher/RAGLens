@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createReleaseDoctorReport } from '../scripts/release-doctor.js';
 
-test('release doctor reports missing external tools as warnings, not project errors', async () => {
+test('release doctor treats missing external tools as warnings', async () => {
   const report = await createReleaseDoctorReport({
     cwd: process.cwd(),
     env: {},

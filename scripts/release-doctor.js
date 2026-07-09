@@ -52,9 +52,11 @@ function checkPackageScripts(report, packageJson) {
     'doctor',
     'release:audit',
     'lint',
-    'browser:smoke',
+    'integration:check',
+    'service:check',
+    'browser:check',
     'docker:check',
-    'docker:smoke',
+    'docker:runtime',
     'api:contract',
     'postgres:contract',
     'eval'
@@ -64,8 +66,8 @@ function checkPackageScripts(report, packageJson) {
 
   addCheck(report, 'preflight runs release audit', String(scripts.preflight || '').includes('npm run release:audit'));
   addCheck(report, 'preflight runs lint', String(scripts.preflight || '').includes('npm run lint'));
-  addCheck(report, 'preflight runs browser smoke', String(scripts.preflight || '').includes('npm run browser:smoke'));
-  addCheck(report, 'preflight runs Docker smoke', String(scripts.preflight || '').includes('npm run docker:smoke'));
+  addCheck(report, 'preflight runs browser check', String(scripts.preflight || '').includes('npm run browser:check'));
+  addCheck(report, 'preflight runs Docker runtime check', String(scripts.preflight || '').includes('npm run docker:runtime'));
 }
 
 async function checkRequiredFiles(report, cwd) {
@@ -109,7 +111,7 @@ async function checkExternalTools(report, commandRunner) {
     report.warnings.push('Git is unavailable, so commit status and tracked generated files could not be checked.');
   }
   if (!report.tools.docker.available) {
-    report.warnings.push('Docker is unavailable, so Docker runtime smoke will skip locally.');
+    report.warnings.push('Docker is unavailable, so the Docker runtime check will skip locally.');
   }
 }
 
@@ -199,7 +201,7 @@ function checkStrictReleaseRules(report) {
     report.errors.push('Strict release mode requires Git so tracked and dirty files can be checked.');
   }
   if (!report.tools.docker?.available) {
-    report.errors.push('Strict release mode requires Docker so runtime smoke can be run.');
+    report.errors.push('Strict release mode requires Docker so the runtime check can be run.');
   }
   if (report.generatedDataDirs.length) {
     report.errors.push('Strict release mode requires generated data directories to be removed before publishing archives.');

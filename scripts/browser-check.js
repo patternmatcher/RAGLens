@@ -4,13 +4,13 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
-import { findOpenPort, stopChild, trackChild, waitForHealth } from './smoke-utils.js';
+import { findOpenPort, stopChild, trackChild, waitForHealth } from './check-utils.js';
 
 const execFileAsync = promisify(execFile);
 const browserPath = process.env.RAGLENS_BROWSER || findBrowser();
 
 if (!browserPath) {
-  console.log('Browser smoke skipped: set RAGLENS_BROWSER to Chrome or Edge.');
+  console.log('Browser check skipped: set RAGLENS_BROWSER to Chrome or Edge.');
   process.exit(0);
 }
 
@@ -38,7 +38,7 @@ const childState = trackChild(server);
 
 try {
   await waitForHealth(`${baseUrl}/api/health`, { childState });
-  const run = await createSmokeRun(baseUrl);
+  const run = await createCheckRun(baseUrl);
   const bundle = await fetchJson(`${baseUrl}/api/query-runs/${run.id}/bundle`);
   if (bundle.schema !== 'raglens.run-bundle.v1') {
     throw new Error('Run bundle endpoint returned an unexpected schema.');
@@ -60,7 +60,7 @@ try {
 
   assertAppDom(desktopDom, 'desktop');
   assertAppDom(mobileDom, 'mobile');
-  console.log(`Browser smoke passed. Screenshots: ${desktopScreenshotPath}, ${mobileScreenshotPath}`);
+  console.log(`Browser check passed. Screenshots: ${desktopScreenshotPath}, ${mobileScreenshotPath}`);
 } finally {
   await stopChild(server);
 }
@@ -119,7 +119,7 @@ function assertAppDom(stdout, label) {
   assert(stdout.includes('New Project'), `${label} DOM is missing new project action`);
 }
 
-async function createSmokeRun(baseUrl) {
+async function createCheckRun(baseUrl) {
   return fetchJson(`${baseUrl}/api/query-runs`, {
     method: 'POST',
     headers: {

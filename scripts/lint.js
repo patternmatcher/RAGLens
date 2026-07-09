@@ -120,7 +120,7 @@ function shouldLintFile(file) {
 }
 
 function shouldSkipDirectory(name) {
-  return ['node_modules', 'coverage', 'data', 'data-smoke'].includes(name);
+  return ['node_modules', 'coverage', 'data'].includes(name) || name.startsWith('data-');
 }
 
 function isJavaScriptFile(file) {

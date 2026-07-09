@@ -14,11 +14,13 @@ RAGLens is the companion RAG workbench. It is where you upload documents, tune c
 
 Use RAGLens when you want to build and inspect a RAG run. Use TraceLens when you want to operate, govern, and explain many RAG or agent runs across teams, releases, models, and private open-weight deployments.
 
-The current handoff is practical:
+The handoff is covered by a checked contract:
 
-- `GET /api/query-runs/:id/otel` exports OTLP-style telemetry that TraceLens can import through its OpenInference/OTLP path.
+- `GET /api/query-runs/:id/otel` exports rich OTLP with query rewrites, retrieval documents, prompt context ids, answer claims, citations, evaluation metrics, token usage, privacy posture, and model identity.
 - `GET /api/query-runs/:id/bundle` exports a portable local run bundle for reviewer handoff and future richer adapters.
 - An external claim verifier can sit between them when you want stronger claim decomposition before TraceLens routes failures.
+
+With both repositories cloned side by side, `npm run stack:demo` runs a real baseline and stale-source candidate through RAGLens, imports them into TraceLens, produces a release decision, and verifies a redacted review bundle.
 
 See `docs/tracelens-positioning.md` for the boundary in more detail.
 
@@ -62,15 +64,14 @@ npm run dev     # same runtime, useful for development
 npm run build   # syntax check all JS files
 npm run lint    # run static security and workflow hygiene checks
 npm test        # run unit and pipeline tests
-npm run smoke   # exercise the core HTTP/API flow
-npm run service:smoke # start the production entrypoint and check health/query/share
+npm run integration:check # exercise the core HTTP/API flow
+npm run service:check # start the production entrypoint and check health/query/share
 npm run eval    # run seeded RAG evals
 npm run corpus:fetch # download external SQuAD, StratRAG, and SciFact slices into corpora/
 npm run corpus:eval # run external corpus slices and update docs/corpus-evaluation.md
 npm run corpus:app-demo # drive the app API with external corpus docs/evals/runs
-npm run browser:smoke # load the app in a headless browser
+npm run stack:demo # run the RAGLens-to-TraceLens corpus and release workflow
 npm run docker:check # validate Dockerfile, Compose, and dockerignore contract
-npm run docker:smoke # build and run the Docker image when Docker is available
 npm run api:contract # validate docs/api/openapi.json against the router contract
 npm run postgres:contract # validate hosted Postgres/pgvector schema contract
 npm run postgres:export -- --demo # emit SQL seed data for the hosted schema
@@ -133,6 +134,14 @@ npm run corpus:app-demo -- --report=docs/app-corpus-demo.md
 ```
 
 The downloader prepares small slices from SQuAD, StratRAG, and SciFact under `corpora/`. That directory is ignored by git and Docker. `corpus:eval` runs the benchmark-style pipeline check; `corpus:app-demo` drives the HTTP API used by the browser app: settings, document ingestion, eval question creation, query runs, state hydration, and bundle export. The latest checked reports are `docs/corpus-evaluation.md` and `docs/app-corpus-demo.md`.
+
+For the cross-project release demonstration:
+
+```bash
+npm run stack:demo
+```
+
+The generated report and artifacts are written under `corpora/results/tracelens-stack-demo`. See `docs/tracelens-stack-demo.md` for the scenario and expected decision.
 
 ## API Surface
 
@@ -224,7 +233,7 @@ When an admin token is configured, JSON API routes other than `/api/health` requ
 Compose runs the app as a non-root user with a read-only root filesystem, dropped Linux capabilities, `no-new-privileges`, process/memory limits, and tmpfs for parser temp files.
 Compose also maps `host.docker.internal` to the host gateway so the app container can reach a local vLLM server at `http://host.docker.internal:8000/v1`.
 
-The Docker runtime check is `npm run docker:smoke`. It builds the image, starts a secured container, checks `/api/health`, confirms unauthenticated API requests are rejected, creates a run, and exports a run bundle.
+The Docker runtime check is `npm run docker:runtime`. It builds the image, starts a secured container, checks `/api/health`, confirms unauthenticated API requests are rejected, creates a run, and exports a run bundle.
 
 ## Roadmap
 

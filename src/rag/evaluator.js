@@ -160,6 +160,7 @@ function chunkSupportsClaim(cleanText, claimTerms, chunk) {
 
 function splitClaims(answerText) {
   return String(answerText || '')
+    .replace(/\[[^\]]+\]/g, ' ')
     .split(/(?<=[.!?])\s+/)
     .map((sentence) => sentence.trim())
     .filter((sentence) => sentence.length > 12);
