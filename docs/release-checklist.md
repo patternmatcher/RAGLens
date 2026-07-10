@@ -6,8 +6,10 @@ Run this before publishing a release or tag:
 npm run doctor
 npm run doctor -- --strict # for tags/releases on machines with Git and Docker
 npm run preflight
+npm run eval:calibrate
 npm run corpus:eval -- --report=docs/corpus-evaluation.md # after npm run corpus:fetch has populated corpora/
 npm run corpus:app-demo -- --report=docs/app-corpus-demo.md
+npm run stack:demo # with TraceLens cloned beside RAGLens
 npm run postgres:export -- --demo
 npm run release:audit -- --json
 ```
@@ -23,9 +25,12 @@ Manual checks:
 - Inspect retrieved chunks, claims, warnings, and trace steps.
 - Add a small document containing a fake token and confirm it is redacted.
 - Upload a simple PDF and confirm Settings reports the expected PDF parser mode; if `RAGLENS_PDF_TEXT_COMMAND` is configured, confirm extraction falls back cleanly when the command is unavailable.
-- Run one eval question and confirm precision@k, recall@k, MRR, claim heatmap, and citation links render.
+- Run one eval question and confirm precision@k, any-source recall@k, source recall@k, all-source recall@k, MRR, claim heatmap, and citation links render.
+- Run `npm run eval:calibrate` and review the held-out validation results in `docs/evaluation-calibration.md` before changing runtime warning thresholds.
 - If external corpora are available locally, run `npm run corpus:eval -- --report=docs/corpus-evaluation.md` and review the SQuAD, StratRAG, and SciFact summary table.
 - Run `npm run corpus:app-demo -- --report=docs/app-corpus-demo.md` and confirm it indexes external docs through the app API, creates eval checks, runs queries, and exports a bundle.
+- With TraceLens cloned beside RAGLens, run `npm run stack:demo` and confirm both traces pass import, release-gate, and redacted bundle checks.
+- On a machine with a compatible local vLLM model, use `npm run stack:open-weight` for the live model, corpus, collector, and gate path. Keep generated evidence under ignored `corpora/results/`.
 - Copy a share link and confirm it reopens the same run.
 - Compare two runs of the same question and confirm the picker labels distinguish timestamp/config, and the comparison shows metric, config, answer, retrieval, and warning deltas.
 - Download a Run Bundle from the Inspector and confirm the JSON contains `raglens.run-bundle.v1`, retrieved evidence chunks, source metadata, and no full source document text, embedding vectors, or term-count internals.

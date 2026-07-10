@@ -120,6 +120,7 @@ async function evaluateCorpus(corpus, options) {
         chunkTokens: options.chunkTokens,
         overlapTokens: options.overlapTokens,
         expectedSource: question.expectedSources?.[0] || '',
+        expectedSources: question.expectedSources || [],
         expectedAnswer: question.expectedAnswer || ''
       }
     });

@@ -158,6 +158,48 @@ test('expected answer coverage flags right-source wrong-answer eval failures', (
   assert.ok(evaluation.warnings.some((warning) => warning.type === 'expected-answer-mismatch'));
 });
 
+test('ground-truth metrics support multiple acceptable source documents', () => {
+  const retrieved = [
+    {
+      rank: 1,
+      score: 0.9,
+      coverage: 1,
+      chunk: {
+        id: 'chk_policy',
+        documentTitle: 'Policy v3',
+        terms: ['refund', 'thirty', 'days'],
+        text: 'The refund period is thirty days.'
+      }
+    },
+    {
+      rank: 2,
+      score: 0.7,
+      coverage: 0.5,
+      chunk: {
+        id: 'chk_faq',
+        documentTitle: 'Support FAQ',
+        terms: ['support', 'contact'],
+        text: 'Contact support for help.'
+      }
+    }
+  ];
+  const evaluation = evaluateRun({
+    question: 'What changed in the refund policy?',
+    answerText: 'The refund period is thirty days. [DTEST:C1]',
+    citations: [{ claimIndex: 0, chunkId: 'chk_policy', label: 'DTEST:C1' }],
+    retrieved,
+    expectedSources: ['Policy v3', 'Policy changelog']
+  });
+
+  assert.equal(evaluation.metrics.evalAvailable, true);
+  assert.equal(evaluation.metrics.expectedSourceCount, 2);
+  assert.equal(evaluation.metrics.expectedSourceHits, 1);
+  assert.equal(evaluation.metrics.recallAtK, 1);
+  assert.equal(evaluation.metrics.sourceRecallAtK, 0.5);
+  assert.equal(evaluation.metrics.allSourceRecallAtK, 0);
+  assert.equal(evaluation.metrics.mrr, 1);
+});
+
 test('trailing citation labels do not become empty unsupported claims', () => {
   const retrieved = [
     {

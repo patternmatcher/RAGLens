@@ -34,7 +34,8 @@ See `docs/tracelens-positioning.md` for the boundary in more detail.
 - Claim-level support labels and a source usage heatmap that maps each claim to retrieved chunks.
 - Metrics for retrieval confidence, context relevance, faithfulness, citation coverage, redundancy, and answer focus.
 - Configurable latency, token, and provider cost accounting for each run.
-- Eval metrics for precision@k, recall@k, and MRR when an eval question has an expected source.
+- Eval metrics for precision@k, any-source recall@k, source recall@k, all-source recall@k, and MRR when an eval question has one or more acceptable sources.
+- Held-out evaluation calibration with source-removed negative controls, so runtime heuristics and eval-set ground truth are measured separately.
 - Run history, trace timeline, eval-set runner, and side-by-side run comparison with metric, config, answer, retrieval-overlap, and warning deltas.
 - Editable eval checks with expected source documents for regression testing.
 - Settings for provider/model, temperature, chunking, retrieval mode, prompt template, prompt logging, redaction, and reranking.
@@ -67,10 +68,12 @@ npm test        # run unit and pipeline tests
 npm run integration:check # exercise the core HTTP/API flow
 npm run service:check # start the production entrypoint and check health/query/share
 npm run eval    # run seeded RAG evals
+npm run eval:calibrate # calibrate eval thresholds with source-removed controls
 npm run corpus:fetch # download external SQuAD, StratRAG, and SciFact slices into corpora/
 npm run corpus:eval # run external corpus slices and update docs/corpus-evaluation.md
 npm run corpus:app-demo # drive the app API with external corpus docs/evals/runs
 npm run stack:demo # run the RAGLens-to-TraceLens corpus and release workflow
+npm run stack:open-weight # run a local vLLM corpus query through the TraceLens collector and gate
 npm run docker:check # validate Dockerfile, Compose, and dockerignore contract
 npm run api:contract # validate docs/api/openapi.json against the router contract
 npm run postgres:contract # validate hosted Postgres/pgvector schema contract
@@ -131,9 +134,10 @@ The built-in demo proves the app flow. For a stronger retrieval check, use the e
 npm run corpus:fetch
 npm run corpus:eval -- --report=docs/corpus-evaluation.md
 npm run corpus:app-demo -- --report=docs/app-corpus-demo.md
+npm run eval:calibrate
 ```
 
-The downloader prepares small slices from SQuAD, StratRAG, and SciFact under `corpora/`. That directory is ignored by git and Docker. `corpus:eval` runs the benchmark-style pipeline check; `corpus:app-demo` drives the HTTP API used by the browser app: settings, document ingestion, eval question creation, query runs, state hydration, and bundle export. The latest checked reports are `docs/corpus-evaluation.md` and `docs/app-corpus-demo.md`.
+The downloader prepares small slices from SQuAD, StratRAG, and SciFact under `corpora/`. That directory is ignored by git and Docker. `corpus:eval` runs the benchmark-style pipeline check; `corpus:app-demo` drives the HTTP API used by the browser app: settings, document ingestion, eval question creation, query runs, state hydration, and bundle export. `eval:calibrate` pairs normal questions with source-removed controls, selects thresholds on one split, and reports held-out accuracy. The checked reports are `docs/corpus-evaluation.md`, `docs/app-corpus-demo.md`, and `docs/evaluation-calibration.md`.
 
 For the cross-project release demonstration:
 
@@ -142,6 +146,14 @@ npm run stack:demo
 ```
 
 The generated report and artifacts are written under `corpora/results/tracelens-stack-demo`. See `docs/tracelens-stack-demo.md` for the scenario and expected decision.
+
+With a local vLLM endpoint running and TraceLens cloned beside RAGLens:
+
+```bash
+npm run stack:open-weight
+```
+
+That command uses the full normalized StratRAG slice, requires live provider generation, exports redacted OTLP through TraceLens's authenticated hosted collector, applies the release gate, and records serving, token, retrieval, grounding, and GPU measurements. See `docs/vllm.md` for the launch profiles.
 
 ## API Surface
 

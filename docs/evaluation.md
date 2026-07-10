@@ -6,14 +6,22 @@ RAGLens keeps retrieval and answer evaluation separate. A bad user-facing answer
 
 - `retrievalConfidence`: normalized top retrieval score.
 - `contextRelevance`: average query-term coverage across retrieved chunks.
-- `precisionAtK`: fraction of retrieved chunks matching the expected source when available.
-- `recallAtK`: whether the expected source appeared in the retrieved set.
+- `precisionAtK`: fraction of retrieved chunks matching any acceptable source when available.
+- `recallAtK`: whether at least one acceptable source appeared in the retrieved set.
+- `sourceRecallAtK`: fraction of acceptable sources represented in the retrieved set.
+- `allSourceRecallAtK`: whether every acceptable source appeared in the retrieved set.
 - `mrr`: reciprocal rank of the first expected-source chunk.
 - `redundancy`: average overlap between retrieved chunks. Lower is better.
 
 ## Eval Checks
 
-Eval checks are saved questions with an expected source document and optional expected answer note. The expected source is used to calculate `precisionAtK`, `recallAtK`, and `mrr` when the same question is run from the Workbench, Eval Set screen, or CLI eval script. The expected answer note is scored with deterministic key-term coverage so a run can retrieve the right document but still fail when it answers the wrong thing. Duplicate saved questions update the existing check instead of creating another copy.
+Eval checks are saved questions with an expected source document and optional expected answer note. The pipeline and corpus harness also accept an `expectedSources` array for questions where several documents are required or any one of several sources is acceptable. Source expectations calculate `precisionAtK`, `recallAtK`, `sourceRecallAtK`, `allSourceRecallAtK`, and `mrr`. The expected answer note is scored with deterministic key-term coverage so a run can retrieve the right document but still fail when it answers the wrong thing. Duplicate saved questions update the existing check instead of creating another copy.
+
+## Calibration
+
+Run `npm run eval:calibrate` after downloading the external corpora. The harness pairs each normal question with a negative control where every expected-source document is removed, assigns question pairs to deterministic calibration and validation splits, and selects thresholds using balanced accuracy.
+
+The checked result in `docs/evaluation-calibration.md` shows why source-labeled evals matter. Runtime retrieval, context, faithfulness, and citation heuristics can look healthy when the system is grounded in the wrong document. Expected-source recall and MRR detect that failure because they use reviewed ground truth. Treat runtime scores as triage signals and source-labeled eval metrics as release evidence.
 
 ## Answer Metrics
 

@@ -57,6 +57,7 @@ Legend:
 | Citation coverage | Complete | `src/rag/evaluator.js` |
 | Redundancy | Complete | `src/rag/evaluator.js` |
 | Latency and token/cost accounting | Complete | `src/rag/pipeline.js`, `src/rag/cost.js`, `test/cost.test.js` |
+| Held-out heuristic calibration | Complete | `scripts/calibrate-evaluations.js`, `docs/evaluation-calibration.md`. Calibration uses source-removed negative controls and reports a deterministic 80/20 split separately from eval-set ground truth. |
 
 ## Screens
 
@@ -74,7 +75,7 @@ Legend:
 
 | Plan item | Status | Evidence |
 | --- | --- | --- |
-| Docker Compose | Partial | `Dockerfile`, `docker-compose.yml`, `scripts/docker-check.js`; the container runtime check requires Docker. CI and strict release checks can require Docker. |
+| Docker Compose | Complete | `Dockerfile`, `docker-compose.yml`, `scripts/docker-check.js`, and `scripts/docker-runtime.js`. The runtime check builds the image, starts the container on loopback, verifies token-protected state access, runs a query, exports a bundle, and removes the test image. |
 | Seed demo dataset | Complete | `src/demo.js`, `scripts/seed-demo.js`, `scripts/rag-eval.js` |
 | External corpus evaluation | Complete | `scripts/corpus-fetch.js`, `scripts/corpus-eval.js`, `scripts/corpus-app-demo.js`, `docs/corpus-evaluation.md`, `docs/app-corpus-demo.md`. Downloaded corpus files stay in ignored `corpora/`; the current reports cover SQuAD, StratRAG, and SciFact slices plus an HTTP API app demo. |
 | README screenshot and architecture diagram | Complete | `README.md`, `docs/assets/dashboard.png`, Mermaid diagram |
@@ -83,6 +84,8 @@ Legend:
 | `.env.example`, contribution, security, issue templates | Complete | `.env.example`, `CONTRIBUTING.md`, `SECURITY.md`, `.github/ISSUE_TEMPLATE/` |
 | RAG failure mode docs | Complete | `docs/architecture.md`, `docs/evaluation.md`, `docs/security-model.md` |
 | Release readiness doctor | Complete | `scripts/release-doctor.js`, `test/release-doctor.test.js` |
+| RAGLens to TraceLens release path | Complete | `scripts/tracelens-stack-demo.js` creates baseline and stale-source traces in RAGLens, imports them into TraceLens, applies the release gate, and verifies a redacted review bundle. |
+| Live open-weight stack proof | Partial | `scripts/open-weight-stack-eval.js` and `scripts/vllm-wsl-bridge.py` provide the local vLLM, external corpus, authenticated TraceLens collector, and gate path. A compatible GPU runtime and local model are required, so release evidence is generated under ignored `corpora/results/` rather than committed as a universal benchmark. |
 
 ## Security
 
@@ -119,6 +122,8 @@ Run these before publishing:
 npm run doctor
 npm run preflight
 npm run lint
+npm run eval:calibrate
+npm run stack:demo
 npm run postgres:export -- --demo
 npm run release:audit -- --json
 ```
@@ -132,4 +137,4 @@ Current local limitations are reported by `npm run doctor`: Docker or Git may be
 - Faithfulness and context relevance are deterministic lexical heuristics, not an LLM judge.
 - pgvector support proves hosted persistence, vector storage/indexing contracts, and the parameterized database-side candidate retrieval path; live DB execution still needs to be verified against the target Postgres instance.
 - Security features are redaction, warnings, safer defaults, and documentation; RAGLens is not a complete DLP scanner or multi-user auth system.
-- Live OpenAI-compatible providers, live OTLP collectors, Docker runtime, Git status, and live Postgres should be exercised in the target deployment environment.
+- Live OpenAI-compatible providers, live OTLP collectors, Git status, and live Postgres should be exercised in the target deployment environment. Docker is covered by `npm run docker:runtime` when the daemon is available.

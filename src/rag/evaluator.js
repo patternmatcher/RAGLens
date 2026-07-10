@@ -14,7 +14,7 @@ const SENSITIVE_PATTERNS = [
   /\b\d{3}[-.\s]?\d{2}[-.\s]?\d{4}\b/
 ];
 
-export function evaluateRun({ question, answerText, citations, retrieved, expectedSource, expectedAnswer }) {
+export function evaluateRun({ question, answerText, citations, retrieved, expectedSource, expectedSources, expectedAnswer }) {
   const claims = splitClaims(answerText).map((text, index) =>
     evaluateClaim(text, index, citations, retrieved)
   );
@@ -33,7 +33,8 @@ export function evaluateRun({ question, answerText, citations, retrieved, expect
   const answerTerms = uniqueTerms(answerText);
   const queryTerms = uniqueTerms(question);
   const answerFocus = queryTerms.length ? jaccard(answerTerms, queryTerms) : 0;
-  const evalMetrics = computeGroundTruthMetrics(retrieved, expectedSource);
+  const normalizedExpectedSources = normalizeExpectedSources(expectedSources ?? expectedSource);
+  const evalMetrics = computeGroundTruthMetrics(retrieved, normalizedExpectedSources);
   const expectedAnswerMetrics = computeExpectedAnswerMetrics(answerText, expectedAnswer);
   const metrics = {
     retrievalConfidence: round(retrievalConfidence),
@@ -42,10 +43,14 @@ export function evaluateRun({ question, answerText, citations, retrieved, expect
     citationCoverage: round(citationCoverage),
     redundancy: round(redundancy),
     answerFocus: round(answerFocus),
-    evalAvailable: Boolean(expectedSource),
+    evalAvailable: normalizedExpectedSources.length > 0,
     precisionAtK: evalMetrics.precisionAtK,
     recallAtK: evalMetrics.recallAtK,
     mrr: evalMetrics.mrr,
+    expectedSourceCount: evalMetrics.expectedSourceCount,
+    expectedSourceHits: evalMetrics.expectedSourceHits,
+    sourceRecallAtK: evalMetrics.sourceRecallAtK,
+    allSourceRecallAtK: evalMetrics.allSourceRecallAtK,
     expectedAnswerAvailable: Boolean(expectedAnswer),
     expectedAnswerCoverage: expectedAnswerMetrics.coverage,
     expectedAnswerSimilarity: expectedAnswerMetrics.similarity
@@ -57,7 +62,7 @@ export function evaluateRun({ question, answerText, citations, retrieved, expect
     metrics,
     expectedAnswer: expectedAnswerMetrics.details,
     warnings,
-    failureSummary: summarizeFailure({ metrics, warnings, expectedSource })
+    failureSummary: summarizeFailure({ metrics, warnings, expectedSources: normalizedExpectedSources })
   };
 }
 
@@ -254,25 +259,46 @@ function buildWarnings({ claims, retrieved, redundancy, retrievalConfidence, exp
   return warnings;
 }
 
-function computeGroundTruthMetrics(retrieved, expectedSource) {
-  if (!expectedSource) {
+function computeGroundTruthMetrics(retrieved, expectedSources) {
+  if (!expectedSources.length) {
     return {
       precisionAtK: 0,
       recallAtK: 0,
-      mrr: 0
+      mrr: 0,
+      expectedSourceCount: 0,
+      expectedSourceHits: 0,
+      sourceRecallAtK: 0,
+      allSourceRecallAtK: 0
     };
   }
 
-  const expected = String(expectedSource).toLowerCase();
+  const expected = expectedSources.map((source) => source.toLowerCase());
   const relevantRanks = retrieved
-    .filter((item) => String(item.chunk.documentTitle || '').toLowerCase().includes(expected))
+    .filter((item) => matchesExpectedSource(item.chunk?.documentTitle, expected))
     .map((item) => item.rank);
+  const expectedSourceHits = expected.filter((source) => retrieved.some(
+    (item) => String(item.chunk?.documentTitle || '').toLowerCase().includes(source)
+  )).length;
 
   return {
     precisionAtK: round(relevantRanks.length / Math.max(1, retrieved.length)),
     recallAtK: relevantRanks.length ? 1 : 0,
-    mrr: relevantRanks.length ? round(1 / Math.min(...relevantRanks)) : 0
+    mrr: relevantRanks.length ? round(1 / Math.min(...relevantRanks)) : 0,
+    expectedSourceCount: expected.length,
+    expectedSourceHits,
+    sourceRecallAtK: round(expectedSourceHits / expected.length),
+    allSourceRecallAtK: expectedSourceHits === expected.length ? 1 : 0
   };
+}
+
+function normalizeExpectedSources(value) {
+  const sources = Array.isArray(value) ? value : [value];
+  return [...new Set(sources.map((source) => String(source || '').trim()).filter(Boolean))];
+}
+
+function matchesExpectedSource(documentTitle, expectedSources) {
+  const title = String(documentTitle || '').toLowerCase();
+  return expectedSources.some((source) => title.includes(source));
 }
 
 function computeExpectedAnswerMetrics(answerText, expectedAnswer) {
@@ -345,13 +371,13 @@ function uniqueByChunkId(items) {
   return unique;
 }
 
-function summarizeFailure({ metrics, warnings, expectedSource }) {
+function summarizeFailure({ metrics, warnings, expectedSources }) {
   if (!warnings.length && metrics.faithfulness >= 0.8 && metrics.citationCoverage >= 0.8) {
     return 'No major failure detected. Retrieval, grounding, and citation coverage are healthy for this run.';
   }
 
   const reasons = warnings.map((warning) => warning.type);
-  if (expectedSource && metrics.recallAtK === 0) {
+  if (expectedSources.length && metrics.recallAtK === 0) {
     reasons.unshift('expected-source-missing');
   }
 

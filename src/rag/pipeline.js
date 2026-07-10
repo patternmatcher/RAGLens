@@ -104,6 +104,7 @@ export async function runRagInspection({ question, chunks, config = {}, retrieve
     citations: answer.citations,
     retrieved: retrieval.results,
     expectedSource: config.expectedSource,
+    expectedSources: config.expectedSources,
     expectedAnswer: config.expectedAnswer
   });
   const evaluationMs = msSince(evalStart);
@@ -134,6 +135,7 @@ export async function runRagInspection({ question, chunks, config = {}, retrieve
     config: {
       topK: Number(config.topK || 6),
       maxClaims: Number(config.maxClaims || 4),
+      maxOutputTokens: Number(config.maxOutputTokens || 0),
       temperature: Number(config.temperature || 0),
       model: config.model || 'local-extractive-v1',
       provider: config.provider || 'local',

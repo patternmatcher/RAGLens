@@ -79,6 +79,7 @@ async function generateOpenAICompatibleAnswer({ question, prompt, retrieved, con
       body: JSON.stringify({
         model,
         temperature: Number(config.temperature || 0),
+        ...outputTokenLimit(config.maxOutputTokens),
         messages: [
           {
             role: 'system',
@@ -125,6 +126,11 @@ async function generateOpenAICompatibleAnswer({ question, prompt, retrieved, con
   } finally {
     clearTimeout(timeout);
   }
+}
+
+function outputTokenLimit(value) {
+  const tokens = Number(value);
+  return Number.isInteger(tokens) && tokens > 0 ? { max_tokens: Math.min(tokens, 16_384) } : {};
 }
 
 function hasOpenAICompatibleProvider(provider = {}) {

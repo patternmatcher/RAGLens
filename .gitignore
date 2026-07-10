@@ -9,3 +9,5 @@ Thumbs.db
 npm-debug.log*
 coverage/
 corpora/
+__pycache__/
+*.py[cod]
