@@ -14,6 +14,8 @@
     "lint": "node scripts/lint.js",
     "test": "node --test",
     "eval": "node scripts/rag-eval.js",
+    "eval:golden": "node scripts/golden-eval.js --check",
+    "benchmark:rag": "node scripts/golden-eval.js --check --out benchmarks/rag-naive-vs-enhanced.json --report docs/rag-benchmark.md",
     "eval:calibrate": "node scripts/calibrate-evaluations.js",
     "corpus:fetch": "node scripts/corpus-fetch.js",
     "corpus:eval": "node scripts/corpus-eval.js",
@@ -26,11 +28,12 @@
     "docker:check": "node scripts/docker-check.js",
     "docker:runtime": "node scripts/docker-runtime.js",
     "api:contract": "node scripts/api-contract.js",
+    "interop:contract": "node scripts/check-rag-trace-contract.js",
     "postgres:contract": "node scripts/postgres-contract.js",
     "postgres:export": "node scripts/postgres-export.js",
     "release:audit": "node scripts/release-audit.js",
     "doctor": "node scripts/release-doctor.js",
-    "preflight": "npm run build && npm run lint && npm test && npm run integration:check && npm run service:check && npm run browser:check && npm run docker:check && npm run docker:runtime && npm run api:contract && npm run postgres:contract && npm run release:audit && npm run eval",
+    "preflight": "npm run build && npm run lint && npm test && npm run integration:check && npm run service:check && npm run browser:check && npm run docker:check && npm run docker:runtime && npm run api:contract && npm run interop:contract && npm run postgres:contract && npm run release:audit && npm run eval && npm run eval:golden",
     "seed": "node scripts/seed-demo.js"
   },
   "keywords": [

@@ -50,50 +50,72 @@ export function extractPdfText(bufferLike) {
   return text || printableFallback(raw);
 }
 
+export function extractPdfPages(bufferLike) {
+  const text = extractPdfText(bufferLike);
+  return text
+    ? [{ pageNumber: null, text, exact: false }]
+    : [];
+}
+
 export async function extractPdfTextWithFallback(bufferLike, options = {}) {
   const buffer = Buffer.isBuffer(bufferLike) ? bufferLike : Buffer.from(bufferLike || '');
 
   if (!options.command) {
+    const pages = extractPdfPages(buffer);
     return {
-      text: extractPdfText(buffer),
+      text: joinPages(pages),
+      pages,
       metadata: {
         method: 'internal-pdf-parser',
-        externalConfigured: false
+        externalConfigured: false,
+        pageCount: pages.length,
+        pageNumbersExact: false
       }
     };
   }
 
   try {
-    const text = await extractPdfTextWithCommand(buffer, options);
-    if (text) {
+    const pages = await extractPdfTextWithCommand(buffer, options);
+    if (pages.length) {
       return {
-        text,
+        text: joinPages(pages),
+        pages,
         metadata: {
           method: 'external-pdf-text-command',
           externalConfigured: true,
-          commandName: path.basename(options.command)
+          commandName: path.basename(options.command),
+          pageCount: pages.length,
+          pageNumbersExact: true
         }
       };
     }
   } catch (error) {
+    const pages = extractPdfPages(buffer);
     return {
-      text: extractPdfText(buffer),
+      text: joinPages(pages),
+      pages,
       metadata: {
         method: 'internal-pdf-parser-fallback',
         externalConfigured: true,
         commandName: path.basename(options.command),
-        externalError: String(error.message || error).slice(0, 240)
+        externalError: String(error.message || error).slice(0, 240),
+        pageCount: pages.length,
+        pageNumbersExact: false
       }
     };
   }
 
+  const pages = extractPdfPages(buffer);
   return {
-    text: extractPdfText(buffer),
+    text: joinPages(pages),
+    pages,
     metadata: {
       method: 'internal-pdf-parser-fallback',
       externalConfigured: true,
       commandName: path.basename(options.command),
-      externalError: 'External PDF text command returned no text.'
+      externalError: 'External PDF text command returned no text.',
+      pageCount: pages.length,
+      pageNumbersExact: false
     }
   };
 }
@@ -113,10 +135,27 @@ async function extractPdfTextWithCommand(buffer, options) {
       windowsHide: true
     });
 
-    return normalizeExtractedText(stdout);
+    return splitExternalPages(stdout);
   } finally {
     await rm(tempDir, { recursive: true, force: true });
   }
+}
+
+function splitExternalPages(text) {
+  const rawPages = String(text || '').replace(/\u0000/g, '').split('\f');
+  const pages = rawPages
+    .map((pageText, index) => ({
+      pageNumber: index + 1,
+      text: normalizeExtractedText(pageText),
+      exact: true
+    }))
+    .filter((page) => page.text);
+
+  return pages.length ? pages : [];
+}
+
+function joinPages(pages) {
+  return pages.map((page) => page.text).filter(Boolean).join('\n\n').slice(0, MAX_EXTRACTED_TEXT_CHARS);
 }
 
 function normalizeExternalArgs(args) {

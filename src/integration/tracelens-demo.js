@@ -57,6 +57,7 @@ function scenarioRun(store, run) {
     topSource: hydrated.retrieved[0]?.document?.title || hydrated.retrieved[0]?.chunk?.documentTitle || '',
     metrics: run.evaluation.metrics,
     answer: run.answer.text,
-    otlp: store.exportOtelRun(run.id, { projectId: run.projectId })
+    otlp: store.exportOtelRun(run.id, { projectId: run.projectId }),
+    ragTrace: store.exportRagTrace(run.id, { projectId: run.projectId, includeContent: true })
   };
 }

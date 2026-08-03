@@ -27,3 +27,16 @@ test('source labels stay unique for chunks with colliding document prefixes', ()
   assert.equal(labelMap.get(labels[0]), 'chk_first111111');
   assert.equal(labelMap.get(labels[1]), 'chk_second222222');
 });
+
+test('source labels include verified PDF page ranges', () => {
+  const label = sourceLabelForChunk({
+    id: 'chk_page',
+    documentId: 'doc_policy',
+    index: 2,
+    pageStart: 4,
+    pageEnd: 5,
+    pageNumbersExact: true
+  });
+
+  assert.match(label, /:P4-5:C3$/);
+});

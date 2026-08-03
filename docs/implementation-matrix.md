@@ -12,10 +12,10 @@ Legend:
 
 | Plan item | Status | Evidence |
 | --- | --- | --- |
-| Create project/workspace | Complete | `src/services/store.js`, `POST /api/projects`, `PATCH /api/projects/active`, `test/server.test.js` |
+| Create and select project/workspace | Complete | `src/services/store.js`, `POST /api/projects`, explicit `projectId` request scoping, and the compatibility snapshot endpoint at `PATCH /api/projects/active` |
 | Upload TXT, Markdown, CSV, JSON, log, PDF | Complete | `src/rag/chunker.js`, `src/rag/pdf.js`, `test/pdf.test.js`, `test/server.test.js`. CSV is indexed as text, not table-aware relational parsing. |
-| Chunk documents and embed chunks | Complete | `src/rag/chunker.js`, `src/rag/embedding.js`, `test/chunker.test.js` |
-| Ask a question and retrieve top chunks | Complete | `src/rag/retriever.js`, `src/rag/pipeline.js`, `test/retriever.test.js`, `test/pipeline.test.js` |
+| Chunk documents and embed chunks | Complete | `src/rag/chunker.js`, `src/rag/embedding-provider.js`, `test/chunker.test.js`, `test/advanced-rag.test.js`. Local and OpenAI-compatible profiles, model/dimension identity, batching, and content-addressed caching are implemented. |
+| Ask a question and retrieve top chunks | Complete | `src/rag/query.js`, `src/rag/retriever.js`, `src/rag/reranker.js`, `src/rag/parent-context.js`, `src/rag/pipeline.js`, and retrieval tests cover rewriting, sparse/dense fusion, filters, candidate depth, reranking, and parent context. |
 | Generate answer with citations | Complete | `src/rag/generator.js`, `src/rag/provider.js`, `src/rag/evaluator.js` |
 | Inspector trace from query to evaluation | Complete | `public/app.js`, `src/rag/pipeline.js`, `test/frontend.test.js` |
 | Compare runs across config changes | Complete | `src/services/store.js`, `public/app.js`, `test/server.test.js`. Chunk-size experiments are supported by changing settings, reindexing with `POST /api/documents/reindex`, then comparing runs with exact chunk overlap and stable source overlap. |
@@ -37,8 +37,8 @@ Legend:
 | Plan item | Status | Evidence |
 | --- | --- | --- |
 | Document ingestion and chunk previews | Complete | Documents view in `public/app.js`; `DocumentCreateResult` in `docs/api/openapi.json` |
-| Chunk metadata: document, section, page, tokens, timestamp | Complete | `chunkSnapshot()` in `src/services/store.js`; `EvidenceChunk` schema |
-| Query workbench controls | Complete | Workbench UI in `public/app.js`; `validateQueryInput()` |
+| Chunk metadata: document, section, page, tokens, timestamp | Complete | `chunkSnapshot()` in `src/services/store.js`; `EvidenceChunk` schema. External PDF extraction preserves exact page ranges and source offsets; fallback parsing reports pages as unknown rather than estimating them. |
+| Query workbench controls | Complete | Workbench UI exposes top-k, candidate depth, retrieval mode, reranking, parent context budget, and metadata scope; `validateQueryInput()` applies bounded allow-listed values. |
 | Retrieved chunk panel with scores and matched terms | Complete | Inspector UI and `retrieved` run payload |
 | Answer panel with citations mapped to chunks | Complete | `hydrateRun()`, `source-label.js`, inspector tests |
 | Failure labels and warnings | Complete | `src/rag/evaluator.js`, `src/rag/pipeline.js`, `docs/architecture.md` |
@@ -52,11 +52,13 @@ Legend:
 | Retrieval precision@k | Complete | `src/rag/evaluator.js`, `docs/evaluation.md`, `scripts/rag-eval.js` |
 | Recall@k | Complete | `src/rag/evaluator.js`, `test/server.test.js` |
 | MRR | Complete | `src/rag/evaluator.js`, `docs/evaluation.md` |
+| Hit rate@k and NDCG@k | Complete | `src/rag/evaluator.js`, inspector UI, golden benchmark, TraceLens export |
 | Context relevance | Complete | `src/rag/evaluator.js` |
 | Faithfulness | Complete | `src/rag/evaluator.js`, heatmap UI |
 | Citation coverage | Complete | `src/rag/evaluator.js` |
 | Redundancy | Complete | `src/rag/evaluator.js` |
 | Latency and token/cost accounting | Complete | `src/rag/pipeline.js`, `src/rag/cost.js`, `test/cost.test.js` |
+| Embedding cache behavior | Complete | Per-run hits, misses, hit rate, embedding latency, JSON/Postgres persistence, benchmark report, and TraceLens export |
 | Held-out heuristic calibration | Complete | `scripts/calibrate-evaluations.js`, `docs/evaluation-calibration.md`. Calibration uses source-removed negative controls and reports a deterministic 80/20 split separately from eval-set ground truth. |
 
 ## Screens
@@ -78,6 +80,7 @@ Legend:
 | Docker Compose | Complete | `Dockerfile`, `docker-compose.yml`, `scripts/docker-check.js`, and `scripts/docker-runtime.js`. The runtime check builds the image, starts the container on loopback, verifies token-protected state access, runs a query, exports a bundle, and removes the test image. |
 | Seed demo dataset | Complete | `src/demo.js`, `scripts/seed-demo.js`, `scripts/rag-eval.js` |
 | External corpus evaluation | Complete | `scripts/corpus-fetch.js`, `scripts/corpus-eval.js`, `scripts/corpus-app-demo.js`, `docs/corpus-evaluation.md`, `docs/app-corpus-demo.md`. Downloaded corpus files stay in ignored `corpora/`; the current reports cover SQuAD, StratRAG, and SciFact slices plus an HTTP API app demo. |
+| Golden evaluation and naive baseline | Complete | `evals/golden-rag-v1.json` contains 60 checked cases; `scripts/golden-eval.js` produces `raglens.rag-benchmark/v1`, enforces release thresholds, and writes `docs/rag-benchmark.md`. |
 | README screenshot and architecture diagram | Complete | `README.md`, `docs/assets/dashboard.png`, Mermaid diagram |
 | CI workflows | Complete | `.github/workflows/ci.yml`, `.github/workflows/rag-evals.yml`, `scripts/lint.js`. `npm run build` checks syntax and `npm run lint` checks security/workflow hygiene; there is no TypeScript typecheck because the app is plain JavaScript. |
 | Unit, integration, browser, contract tests | Complete | `test/`, browser/service scripts, and contract scripts |
@@ -96,6 +99,7 @@ Legend:
 | Prompt-injection-like retrieved text warning | Complete | pre-generation scan in `src/rag/pipeline.js` |
 | Sensitive context warning | Complete | `inspectChunksForSensitiveData()` |
 | Live provider egress guard | Complete | `provider-egress-blocked` warnings in `src/rag/pipeline.js`, OpenAPI `allowUnsafeProviderEgress`, and provider URL transport checks in `src/config.js` |
+| Embedding, planner, reranker, and web egress controls | Complete | Remote embeddings, query planning, and web search require deployment consent; reranking also honors per-run risky-content egress blocking; URLs reject unsafe transport outside approved local use. |
 | Vector/embedding risk documentation | Complete | `docs/security-model.md` |
 | Public API avoids raw secrets and embeddings | Complete | `docs/api/openapi.json`, `scripts/api-contract.js`, `test/server.test.js` |
 | PDF parsing hardening | Complete | byte caps, per-stream and aggregate stream caps, minimal external env, `test/pdf.test.js` |
@@ -105,9 +109,13 @@ Legend:
 
 | Plan item | Status | Evidence |
 | --- | --- | --- |
-| Reranker support | Complete | `src/rag/retriever.js`, settings UI |
+| Reranker support | Complete | Deterministic local reranker plus indexed-response HTTP cross-encoder and ColBERT-style late-interaction adapters in `src/rag/reranker.js` |
 | Hybrid vector + keyword search | Complete | `src/rag/retriever.js` |
-| Query rewriting inspection | Complete | `src/rag/query.js`, trace step UI |
+| Query rewriting inspection | Complete | Deterministic expansion/decomposition plus optional OpenAI-compatible structured planner in `src/rag/query.js`; query variants and fallback state appear in the inspector and shared trace. |
+| Metadata filtering | Complete | Document metadata UI/API, pre-scoring in-memory filters, parameterized Postgres filters, and workbench scope controls |
+| Parent-document retrieval | Complete | Section-neighbor expansion under a bounded token budget with separate child ranking metrics |
+| Low-confidence fallback | Complete | Evidence-aware abstention and optional domain-restricted SearXNG snippet fallback in `src/rag/web-fallback.js` |
+| Shared TraceLens contract | Complete | `tracelens.rag-trace/v2`, `raglens.rag-benchmark/v1`, sibling importer checks, staged pipeline display, diagnostics, comparisons, and policy thresholds |
 | OpenTelemetry trace export | Complete | `src/observability/otel.js`, `/api/query-runs/:id/otel` |
 | Instance-local share link for a run | Complete | `GET /api/share/:id`, share-link UI. Public internet sharing depends on the chosen host/auth setup. |
 | Why did this fail summary | Complete | evaluation warnings and failure summary surfaced in inspector |
@@ -132,7 +140,7 @@ Current local limitations are reported by `npm run doctor`: Docker or Git may be
 
 ## Limitations
 
-- PDF support is best-effort text extraction, not guaranteed full layout fidelity.
+- PDF text extraction remains best effort. Configured `pdftotext` output preserves exact form-feed page boundaries; the internal parser deliberately reports page numbers as unavailable because it cannot guarantee PDF page-object mapping.
 - CSV support indexes CSV content as text, not as a typed table model.
 - Faithfulness and context relevance are deterministic lexical heuristics, not an LLM judge.
 - pgvector support proves hosted persistence, vector storage/indexing contracts, and the parameterized database-side candidate retrieval path; live DB execution still needs to be verified against the target Postgres instance.

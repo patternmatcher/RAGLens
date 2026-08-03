@@ -143,7 +143,7 @@ for (const phrase of [
   'GET /api/compare?left=:id&right=:id',
   'docs/api/openapi.json',
   'docs/database/postgres-pgvector.sql',
-  'optional `projectId`',
+  'accept a `projectId`',
   'npm run postgres:export',
   'RAGLENS_STORAGE_DRIVER=postgres',
   'src/services/postgres-store.js',
@@ -176,7 +176,7 @@ for (const phrase of [
   'Likely API keys',
   'OTLP collector headers',
   'Optional external PDF text extraction',
-  'Retrieved chunks are scanned',
+  'Retrieved chunk bodies',
   'RAGLENS_ALLOW_UNSAFE_PROVIDER_HTTP',
   'RAGLENS_ALLOW_UNSAFE_OTEL_HTTP',
   'RAGLENS_OTEL_INCLUDE_CONTENT',
@@ -278,16 +278,16 @@ for (const phrase of ['expectedRoutes', 'expectedResponseSchemas', '/api/ingesti
 for (const phrase of ['"openapi": "3.1.0"', '"/api/query-runs/{id}/bundle"', '"/api/ingestion-jobs"', '"/api/documents/reindex"', '"AdminTokenHeader"', '"ProjectIdQuery"', '"SettingsInput"', '"WorkspaceState"', '"DocumentCreateResult"', '"ReindexResult"', '"IngestionJob"', '"HydratedRun"', '"StorageStatus"', '"raglens.run-bundle.v1"', 'Full prompt text is omitted', 'allowUnsafeProviderEgress', 'Chunk embedding vectors and term-count internals are not included']) {
   requireText(openapi, phrase, `OpenAPI contract includes ${phrase}`);
 }
-for (const phrase of ['CREATE EXTENSION IF NOT EXISTS vector', 'embedding vector(64) NOT NULL', 'raglens_chunks_embedding_hnsw_idx', 'raglens_query_runs']) {
+for (const phrase of ['CREATE EXTENSION IF NOT EXISTS vector', 'embedding vector NOT NULL', 'embedding_dimensions integer NOT NULL', 'raglens_embedding_cache', 'raglens_chunks_embedding_hnsw_idx', 'raglens_query_runs']) {
   requireText(postgresSchema, phrase, `Postgres schema includes ${phrase}`);
 }
-for (const phrase of ['Postgres contract check passed', 'embedding vector(1536)', 'raglens_eval_questions_project_question_unique_idx', 'src/services/postgres-store.js', 'searchChunksByVector', 'embedding <=> q.embedding']) {
+for (const phrase of ['Postgres contract check passed', 'embedding vector(1536)', 'raglens_eval_questions_project_question_unique_idx', 'src/services/postgres-store.js', 'searchChunksByVector', 'embedding::vector(${dimensions}) <=> q.embedding']) {
   requireText(postgresContract, phrase, `Postgres contract script includes ${phrase}`);
 }
 for (const phrase of ['exportStateToPostgresSql', 'raglens_retrieved_chunks', 'ON CONFLICT DO NOTHING', '::vector']) {
   requireText(postgresExport, phrase, `Postgres export script includes ${phrase}`);
 }
-for (const phrase of ['postgresStatements', 'assertSchema', 'deleteStaleDocuments', 'EMBEDDING_DIMENSIONS', '$14::vector', 'evidence_snapshot', 'WHERE project_id = $1 AND id = $2', 'ON CONFLICT (project_id, lower(question))', 'searchChunksByVector', 'embedding <=> q.embedding']) {
+for (const phrase of ['postgresStatements', 'assertSchema', 'deleteStaleDocuments', '$20::vector', 'embedding_model', 'embedding_dimensions', 'raglens_embedding_cache', 'evidence_snapshot', 'WHERE project_id = $1 AND id = $2', 'ON CONFLICT (project_id, lower(question))', 'searchChunksByVector', 'embedding::vector(${dimensions}) <=> q.embedding']) {
   requireText(postgresStatements, phrase, `Postgres statement boundary includes ${phrase}`);
 }
 for (const phrase of ['PostgresRaglensStore', 'createPgPool', 'loadStateFromPostgres', 'syncStateToPostgres', 'retrieveContextFromPostgres', 'RAGLENS_STORAGE_DRIVER=postgres requires the optional "pg" package']) {

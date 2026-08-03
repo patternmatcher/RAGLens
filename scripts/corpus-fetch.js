@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import zlib from 'node:zlib';
+import { fetchNoRedirect, readResponseBytes } from '../src/security/http-client.js';
 
 const RAW_DIR = path.join('corpora', 'raw');
 const NORMALIZED_DIR = path.join('corpora', 'normalized');
@@ -16,6 +17,8 @@ const SOURCES = {
     name: 'SQuAD v1.1 dev',
     kind: 'json',
     url: 'https://rajpurkar.github.io/SQuAD-explorer/dataset/dev-v1.1.json',
+    sha256: '95aa6a52d5d6a735563366753ca50492a658031da74f301ac5238b03966972c9',
+    maxBytes: 8 * 1024 * 1024,
     rawFile: 'squad-dev-v1.1.json',
     normalizedFile: 'squad.json'
   },
@@ -23,6 +26,8 @@ const SOURCES = {
     name: 'StratRAG validation',
     kind: 'json',
     url: 'https://datasets-server.huggingface.co/rows?dataset=Aryanp088%2FStratRAG&config=default&split=validation&offset=0&length=100',
+    sha256: 'c49d8ec8573426f16cd31644d79cb9a6299f394872f6301ec3289e65c92b9e1e',
+    maxBytes: 4 * 1024 * 1024,
     rawFile: 'stratrag-validation.json',
     normalizedFile: 'stratrag.json'
   },
@@ -30,6 +35,9 @@ const SOURCES = {
     name: 'SciFact dev',
     kind: 'tar.gz',
     url: 'https://scifact.s3-us-west-2.amazonaws.com/release/latest/data.tar.gz',
+    sha256: '11c621288d41ac144d29b13b0f8503b3820b7d6e8b1f6ff24dff335c196d76be',
+    maxBytes: 8 * 1024 * 1024,
+    maxExpandedBytes: 64 * 1024 * 1024,
     rawFile: 'scifact-data.tar.gz',
     normalizedFile: 'scifact.json'
   }
@@ -68,7 +76,7 @@ for (const key of selectedSources) {
     normalizedFile: normalizedPath.replaceAll('\\', '/'),
     documents: normalized.documents.length,
     questions: normalized.questions.length,
-    sha256: sha256(rawBuffer)
+    sha256: source.sha256
   });
 
   console.log(`${source.name}: ${normalized.documents.length} documents, ${normalized.questions.length} questions`);
@@ -80,18 +88,26 @@ console.log(`Wrote ${MANIFEST_PATH}`);
 async function readOrDownload(source, rawPath, force) {
   if (!force) {
     try {
-      return await readFile(rawPath);
+      const cached = await readFile(rawPath);
+      verifyDigest(source, cached);
+      return cached;
     } catch {
       // Download below.
     }
   }
 
   console.log(`Downloading ${source.name} from ${source.url}`);
-  const response = await fetch(source.url);
+  const response = await fetchNoRedirect(globalThis.fetch, source.url, {
+    signal: AbortSignal.timeout(30_000)
+  });
   if (!response.ok) {
     throw new Error(`Failed to download ${source.name}: ${response.status} ${response.statusText}`);
   }
-  const buffer = Buffer.from(await response.arrayBuffer());
+  const buffer = Buffer.from(await readResponseBytes(response, {
+    label: source.name,
+    maxBytes: source.maxBytes
+  }));
+  verifyDigest(source, buffer);
   await writeFile(rawPath, buffer);
   return buffer;
 }
@@ -104,7 +120,7 @@ function normalizeSource(key, source, rawBuffer, limit) {
     return normalizeStratRag(source, parseJson(rawBuffer), limit);
   }
   if (key === 'scifact') {
-    return normalizeSciFact(source, extractTarGz(rawBuffer), limit);
+    return normalizeSciFact(source, extractTarGz(rawBuffer, source.maxExpandedBytes), limit);
   }
   throw new Error(`No normalizer for ${key}.`);
 }
@@ -301,8 +317,8 @@ function normalizedCorpus(key, source, documents, questions) {
   };
 }
 
-function extractTarGz(buffer) {
-  const tar = zlib.gunzipSync(buffer);
+function extractTarGz(buffer, maxOutputLength) {
+  const tar = zlib.gunzipSync(buffer, { maxOutputLength });
   const entries = new Map();
   let offset = 0;
 
@@ -314,13 +330,23 @@ function extractTarGz(buffer) {
     }
 
     const size = Number.parseInt(cleanTarString(header.subarray(124, 136)).trim() || '0', 8);
+    if (!Number.isSafeInteger(size) || size < 0) throw new Error('SciFact archive contains an invalid entry size.');
     const bodyStart = offset + 512;
     const bodyEnd = bodyStart + size;
+    if (bodyEnd > tar.length) throw new Error('SciFact archive contains a truncated entry.');
     entries.set(name, tar.subarray(bodyStart, bodyEnd).toString('utf8'));
+    if (entries.size > 10_000) throw new Error('SciFact archive contains too many entries.');
     offset = bodyStart + Math.ceil(size / 512) * 512;
   }
 
   return entries;
+}
+
+function verifyDigest(source, buffer) {
+  const actual = sha256(buffer);
+  if (actual !== source.sha256) {
+    throw new Error(`${source.name} failed SHA-256 verification. Expected ${source.sha256}, received ${actual}.`);
+  }
 }
 
 function findTarEntry(entries, filename) {

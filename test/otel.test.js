@@ -55,7 +55,9 @@ const sampleRun = {
       contextRelevance: 0.88,
       retrievalConfidence: 0.91,
       precisionAtK: 1,
+      hitRateAtK: 1,
       mrr: 1,
+      ndcgAtK: 0.97,
       answerFocus: 0.72
     }
   },
@@ -111,8 +113,8 @@ test('buildOtlpPayload creates OTLP resource spans from a run trace', () => {
   assert.equal(span.traceId.length, 32);
   assert.equal(span.spanId.length, 16);
   assert.equal(span.attributes.some((item) => item.key === 'raglens.question'), false);
-  assert.equal(span.attributes.some((item) => item.key === 'raglens.question_hash'), true);
-  assert.equal(span.attributes.some((item) => item.key === 'raglens.question_length'), true);
+  assert.equal(span.attributes.some((item) => item.key === 'raglens.question_hash'), false);
+  assert.equal(span.attributes.some((item) => item.key === 'raglens.question_length'), false);
 });
 
 test('buildOtlpPayload can include raw question content only by explicit opt-in', () => {
@@ -138,6 +140,8 @@ test('buildOtlpPayload exports TraceLens evidence, claims, evaluations, usage, a
   assert.equal(attribute(llm, 'gen_ai.usage.total_tokens'), 50);
   assert.equal(attribute(llm, 'gen_ai.request.model'), sampleRun.config.model);
   assert.equal(JSON.parse(attribute(evaluation, 'tracelens.evaluations')).groundedness, 0.93);
+  assert.equal(JSON.parse(attribute(evaluation, 'tracelens.evaluations')).hitRateAtK, 1);
+  assert.equal(JSON.parse(attribute(evaluation, 'tracelens.evaluations')).ndcgAtK, 0.97);
 });
 
 test('buildOtlpPayload omits private content while preserving evidence structure by default', () => {

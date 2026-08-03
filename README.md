@@ -17,8 +17,9 @@ Use RAGLens when you want to build and inspect a RAG run. Use TraceLens when you
 The handoff is covered by a checked contract:
 
 - `GET /api/query-runs/:id/otel` exports rich OTLP with query rewrites, retrieval documents, prompt context ids, answer claims, citations, evaluation metrics, token usage, privacy posture, and model identity.
+- `GET /api/query-runs/:id/trace` exports the versioned `tracelens.rag-trace/v2` interoperability contract with staged retrieval, evidence provenance, generation, evaluation, privacy, and usage data.
 - `GET /api/query-runs/:id/bundle` exports a portable local run bundle for reviewer handoff and future richer adapters.
-- An external claim verifier can sit between them when you want stronger claim decomposition before TraceLens routes failures.
+- `npm run benchmark:rag` emits a `raglens.rag-benchmark/v1` artifact that TraceLens can validate and display as a release report.
 
 With both repositories cloned side by side, `npm run stack:demo` runs a real baseline and stale-source candidate through RAGLens, imports them into TraceLens, produces a release decision, and verifies a redacted review bundle.
 
@@ -26,15 +27,19 @@ See `docs/tracelens-positioning.md` for the boundary in more detail.
 
 ## What It Does
 
-- Document indexing for TXT, Markdown, CSV, JSON, logs, and best-effort PDF text, including common Flate-compressed text streams.
+- Document indexing for TXT, Markdown, CSV, JSON, logs, and best-effort PDF text, including common Flate-compressed streams and exact page provenance from configured `pdftotext` output.
 - Project-scoped workspaces so documents, runs, and eval checks stay separated.
 - Optional queued document ingestion with visible job state for larger uploads.
-- Local hash embeddings plus keyword/vector/hybrid retrieval with matched terms, missing terms, score, coverage, similarity, rerank score, and novelty.
-- Grounded extractive answer generation with citations back to retrieved chunks, plus optional OpenAI-compatible chat generation.
+- Local deterministic embeddings or batched OpenAI-compatible embeddings, with a project-scoped content-addressed cache that never stores source text in cache entries.
+- Sparse, dense, or hybrid candidate retrieval with configurable candidate depth, metadata filters, multi-query fusion, cross-encoder reranking, optional ColBERT-style late interaction, and bounded parent-section expansion.
+- Deterministic query rewriting, abbreviation expansion, ambiguity detection, and query decomposition, with an optional OpenAI-compatible planner and visible local fallback.
+- Grounded extractive answer generation with citations back to retrieved chunks and verified PDF page ranges when available, plus optional OpenAI-compatible chat generation.
+- Evidence-aware abstention below a configurable confidence threshold, with an optional SearXNG-compatible web fallback restricted by deployment consent and domain allowlists.
 - Claim-level support labels and a source usage heatmap that maps each claim to retrieved chunks.
-- Metrics for retrieval confidence, context relevance, faithfulness, citation coverage, redundancy, and answer focus.
+- Metrics for hit rate, precision@k, recall@k, MRR, NDCG@k, retrieval confidence, context relevance, faithfulness, citation coverage, redundancy, answer focus, latency, tokens, and embedding cache behavior.
 - Configurable latency, token, and provider cost accounting for each run.
-- Eval metrics for precision@k, any-source recall@k, source recall@k, all-source recall@k, and MRR when an eval question has one or more acceptable sources.
+- A checked 60-case enterprise golden set covering answerable, metadata-scoped, stale-source, ambiguous, multi-source, query-expansion, adversarial, and unanswerable cases.
+- A reproducible naive-versus-enhanced benchmark with a checked release gate and machine-readable output for TraceLens.
 - Held-out evaluation calibration with source-removed negative controls, so runtime heuristics and eval-set ground truth are measured separately.
 - Run history, trace timeline, eval-set runner, and side-by-side run comparison with metric, config, answer, retrieval-overlap, and warning deltas.
 - Editable eval checks with expected source documents for regression testing.
@@ -68,6 +73,8 @@ npm test        # run unit and pipeline tests
 npm run integration:check # exercise the core HTTP/API flow
 npm run service:check # start the production entrypoint and check health/query/share
 npm run eval    # run seeded RAG evals
+npm run eval:golden # run the 60-case golden set and enforce its gate
+npm run benchmark:rag # regenerate the naive-versus-enhanced benchmark and report
 npm run eval:calibrate # calibrate eval thresholds with source-removed controls
 npm run corpus:fetch # download external SQuAD, StratRAG, and SciFact slices into corpora/
 npm run corpus:eval # run external corpus slices and update docs/corpus-evaluation.md
@@ -76,6 +83,7 @@ npm run stack:demo # run the RAGLens-to-TraceLens corpus and release workflow
 npm run stack:open-weight # run a local vLLM corpus query through the TraceLens collector and gate
 npm run docker:check # validate Dockerfile, Compose, and dockerignore contract
 npm run api:contract # validate docs/api/openapi.json against the router contract
+npm run interop:contract # validate the staged TraceLens handoff
 npm run postgres:contract # validate hosted Postgres/pgvector schema contract
 npm run postgres:export -- --demo # emit SQL seed data for the hosted schema
 npm run release:audit # check release docs, workflows, security, and reviewer contracts
@@ -90,11 +98,14 @@ Final answers hide too much. RAGLens breaks a run into inspectable stages:
 
 ```mermaid
 flowchart LR
-  A["User question"] --> B["Rewrite + hybrid retrieval"]
-  B --> C["Ranked chunks"]
-  C --> D["Grounded answer"]
-  D --> E["Claim support evaluator"]
-  E --> F["Inspector dashboard"]
+  A["User question"] --> B["Rewrite and decompose"]
+  B --> C["Sparse and dense candidates"]
+  C --> D["Fusion and reranking"]
+  D --> E["Metadata and parent context"]
+  E --> F["Answer or abstain"]
+  F --> G["Claims, citations, and evals"]
+  G --> H["RAGLens inspector"]
+  H --> I["TraceLens release gate"]
 ```
 
 The inspector shows the exact chunks used, why they matched, how much query coverage they had, whether the answer claims were supported, which sources were cited for each claim, and which warnings need review.
@@ -147,6 +158,14 @@ npm run stack:demo
 
 The generated report and artifacts are written under `corpora/results/tracelens-stack-demo`. See `docs/tracelens-stack-demo.md` for the scenario and expected decision.
 
+For the checked local golden benchmark:
+
+```bash
+npm run benchmark:rag
+```
+
+The current checked result is in `docs/rag-benchmark.md`. It compares the same 500-token, 50-overlap corpus under a naive keyword profile and the enhanced pipeline. The enhanced profile improves hit rate, MRR, NDCG, grounding, citation coverage, and abstention accuracy on the 60-case set.
+
 With a local vLLM endpoint running and TraceLens cloned beside RAGLens:
 
 ```bash
@@ -158,11 +177,11 @@ That command uses the full normalized StratRAG slice, requires live provider gen
 ## API Surface
 
 The machine-readable API contract lives at `docs/api/openapi.json`. Validate it with `npm run api:contract`.
-Project-scoped read and mutation endpoints accept an optional `projectId` in the request body or query string. Settings are project-scoped too, so chunking, prompt, model, and retrieval defaults follow the targeted project. When omitted, RAGLens falls back to the active project for local single-browser workflows.
+Project-scoped read and mutation endpoints accept a `projectId` in the request body or query string. Settings are project-scoped too, so chunking, prompt, model, and retrieval defaults follow the targeted project. The browser sends the selected project on every scoped request. When `projectId` is omitted, the server uses its stable default project for local scripts and backward compatibility.
 
 - `GET /api/state`
 - `POST /api/projects`
-- `PATCH /api/projects/active`
+- `PATCH /api/projects/active` (compatibility endpoint that returns the requested project snapshot)
 - `PATCH /api/settings`
 - `POST /api/documents`
 - `POST /api/documents/reindex`
@@ -174,6 +193,7 @@ Project-scoped read and mutation endpoints accept an optional `projectId` in the
 - `GET /api/query-runs/:id`
 - `POST /api/query-runs/:id/feedback`
 - `GET /api/query-runs/:id/otel`
+- `GET /api/query-runs/:id/trace`
 - `GET /api/query-runs/:id/bundle`
 - `GET /api/share/:id`
 - `GET /api/compare?left=:id&right=:id`
@@ -194,7 +214,7 @@ RAGLENS_AUTO_SEED=true
 RAGLENS_STORAGE_DRIVER=json
 RAGLENS_DATABASE_URL=
 RAGLENS_DATABASE_POOL_MAX=5
-RAGLENS_DATABASE_SSL=false
+RAGLENS_DATABASE_SSL=true
 RAGLENS_ALLOW_INSECURE_DATABASE_SSL=false
 RAGLENS_ADMIN_TOKEN=
 RAGLENS_ALLOW_UNSAFE_PUBLIC_BIND=false
@@ -204,6 +224,10 @@ RAGLENS_OPENAI_API_KEY=
 RAGLENS_OPENAI_BASE_URL=https://api.openai.com/v1
 RAGLENS_OPENAI_MODEL=gpt-4.1-mini
 RAGLENS_OPENAI_TIMEOUT_MS=30000
+RAGLENS_EMBEDDING_PROVIDER=local
+RAGLENS_RERANKER_PROVIDER=local
+RAGLENS_QUERY_REWRITE_PROVIDER=local
+RAGLENS_WEB_FALLBACK_ENABLED=false
 RAGLENS_COST_INPUT_USD_PER_1M=0
 RAGLENS_COST_OUTPUT_USD_PER_1M=0
 RAGLENS_OTEL_EXPORT_URL=
@@ -221,12 +245,17 @@ A few config notes:
 - RAGLens refuses non-loopback binds without a 32+ character `RAGLENS_ADMIN_TOKEN` unless `RAGLENS_ALLOW_UNSAFE_PUBLIC_BIND=true` is explicitly set.
 - Requests must use an allowed `Host` header. By default that means `localhost`, `127.0.0.1`, `::1`, plus the configured bind host when it is not a wildcard. Use `RAGLENS_ALLOWED_HOSTS` for a trusted reverse proxy or custom hostname.
 - Leave `RAGLENS_OPENAI_API_KEY` empty for deterministic local generation, or for a local unauthenticated OpenAI-compatible server such as vLLM. Set it for keyed providers and choose `openai-compatible` in Settings to call `/chat/completions`.
+- The local embedding, query rewrite, and reranking paths are deterministic. Remote embedding and query planning each require an explicit egress flag. Web fallback also requires explicit query egress, a configured SearXNG endpoint, and should use a domain allowlist.
 - Provider base URLs must use HTTPS unless they point at loopback or Docker host aliases. Use `RAGLENS_ALLOW_UNSAFE_PROVIDER_HTTP=true` only for trusted local test networks.
 - Retrieved chunks with prompt-injection-like or sensitive-data-like text stay local by default. A run must explicitly set `allowUnsafeProviderEgress=true` before that context is sent to a live provider.
 - Set `RAGLENS_COST_*` to your provider's current per-1M-token prices when you want nonzero cost estimates.
-- Set `RAGLENS_OTEL_EXPORT_URL` to an HTTPS OTLP/HTTP traces endpoint to export run traces after each query. HTTP is accepted only for loopback unless `RAGLENS_ALLOW_UNSAFE_OTEL_HTTP=true`; credentials, query strings, and fragments are rejected. `RAGLENS_OTEL_HEADERS` accepts a JSON object for collector auth headers and is never exposed through `/api/state`. Raw questions are not exported unless `RAGLENS_OTEL_INCLUDE_CONTENT=true`.
+- Set `RAGLENS_OTEL_EXPORT_URL` to an HTTPS OTLP/HTTP traces endpoint to export run traces after each query. HTTP is accepted only for loopback unless `RAGLENS_ALLOW_UNSAFE_OTEL_HTTP=true`; credentials, query strings, fragments, and redirects are rejected. `RAGLENS_OTEL_HEADERS` accepts a JSON object for collector auth headers and is never exposed through `/api/state`. Question text, query variants, warning details, document titles, sections, source URIs, prompts, answers, and claim text are omitted unless `RAGLENS_OTEL_INCLUDE_CONTENT=true`.
 - Set `RAGLENS_PDF_TEXT_COMMAND` to an absolute path for a trusted `pdftotext`-compatible binary. RAGLens runs it without a shell using `RAGLENS_PDF_TEXT_ARGS`, where `{input}` is replaced with a temporary PDF path, and falls back to the internal parser on failure.
 - Set `RAGLENS_STORAGE_DRIVER=postgres` and `RAGLENS_DATABASE_URL` for hosted Postgres persistence after applying `docs/database/postgres-pgvector.sql`. `RAGLENS_DATABASE_SSL=true` verifies server certificates by default; `RAGLENS_ALLOW_INSECURE_DATABASE_SSL=true` is only for trusted local test networks. The local default remains `json` and has no runtime dependencies; the Postgres deployment image must install the optional `pg` package.
+- Remote generation, embedding, query rewrite, reranking, web search, and OTLP calls refuse redirects. Provider response bodies are bounded before parsing, and configured credentials are redacted if a provider reflects them in returned fields.
+- Corpus downloads are size-limited and checked against pinned SHA-256 digests before normalization. Existing cached downloads are verified again before use.
+
+See `docs/advanced-rag.md` for the retrieval provider contracts, metadata filter fields, cache behavior, abstention policy, and evaluation workflow. See `.env.example` for every deployment setting.
 
 For local vLLM generation, point `RAGLENS_OPENAI_BASE_URL` at the vLLM `/v1` endpoint and choose `openai-compatible` in Settings. See `docs/vllm.md` for host and Docker Compose examples.
 

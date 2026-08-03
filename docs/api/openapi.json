@@ -41,8 +41,19 @@
     },
     "/api/state": {
       "get": {
-        "summary": "Read active workspace state",
-        "description": "Returns active-project documents, previewable chunks, eval questions, summarized runs, provider status, and observability status. Chunk embedding vectors and term-count internals are not included.",
+        "summary": "Read project workspace state",
+        "description": "Returns documents, previewable chunks, eval questions, summarized runs, provider status, and observability status for the requested project. When omitted, projectId uses the stable default project. Chunk embedding vectors and term-count internals are not included.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Project scope. Defaults to the server's stable local project."
+          }
+        ],
         "responses": {
           "200": {
             "description": "Active project state",
@@ -99,7 +110,8 @@
     },
     "/api/projects/active": {
       "patch": {
-        "summary": "Switch active project",
+        "summary": "Read a project-scoped workspace snapshot",
+        "description": "Compatibility endpoint for older clients. It returns the requested project state without changing process-wide state for other clients.",
         "requestBody": {
           "required": true,
           "content": {
@@ -120,7 +132,7 @@
         },
         "responses": {
           "200": {
-            "description": "Active workspace state after switching projects",
+            "description": "Workspace state for the requested project",
             "content": {
               "application/json": {
                 "schema": {
@@ -230,7 +242,7 @@
                 "properties": {
                   "projectId": {
                     "type": "string",
-                    "description": "Optional project id. Defaults to the active project."
+                    "description": "Optional project id. Defaults to the stable local project."
                   }
                 }
               }
@@ -525,6 +537,38 @@
         }
       }
     },
+    "/api/query-runs/{id}/trace": {
+      "get": {
+        "summary": "Export one run using the TraceLens RAG trace v2 contract",
+        "description": "Exports staged retrieval, evidence provenance, generation, evaluation, privacy, and usage metadata. Raw content follows the configured OTLP content-export policy.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Id"
+          },
+          {
+            "$ref": "#/components/parameters/ProjectIdQuery"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "TraceLens RAG interoperability trace",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RagTraceV2"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
     "/api/query-runs/{id}/bundle": {
       "get": {
         "summary": "Export one run as a portable RAGLens bundle",
@@ -753,7 +797,7 @@
         "name": "projectId",
         "in": "query",
         "required": false,
-        "description": "Optional project id for concurrent clients. Defaults to the active project.",
+        "description": "Optional project id for concurrent clients. Defaults to the stable local project.",
         "schema": {
           "type": "string"
         }
@@ -841,7 +885,7 @@
         "properties": {
           "projectId": {
             "type": "string",
-            "description": "Optional project id. Defaults to the active project."
+            "description": "Optional project id. Defaults to the stable local project."
           },
           "title": {
             "type": "string"
@@ -863,6 +907,20 @@
           "base64": {
             "type": "string",
             "description": "Base64 PDF bytes when sourceType is pdf."
+          },
+          "metadata": {
+            "type": "object",
+            "description": "Allow-listed metadata used for scoped retrieval.",
+            "properties": {
+              "collection": { "type": "string" },
+              "department": { "type": "string" },
+              "version": { "type": "string" },
+              "effectiveDate": { "type": "string" },
+              "sensitivity": { "type": "string" },
+              "sourceUri": { "type": "string" },
+              "tags": { "type": "array", "items": { "type": "string" } }
+            },
+            "additionalProperties": false
           }
         }
       },
@@ -874,7 +932,7 @@
         "properties": {
           "projectId": {
             "type": "string",
-            "description": "Optional project id. Defaults to the active project."
+            "description": "Optional project id. Defaults to the stable local project."
           },
           "question": {
             "type": "string"
@@ -909,6 +967,22 @@
           "rerank": {
             "type": "boolean"
           },
+          "candidateDepth": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "parentContext": {
+            "type": "boolean"
+          },
+          "parentContextMaxTokens": {
+            "type": "integer",
+            "minimum": 200,
+            "maximum": 8000
+          },
+          "metadataFilter": {
+            "$ref": "#/components/schemas/MetadataFilter"
+          },
           "promptTemplate": {
             "type": "string"
           },
@@ -921,12 +995,30 @@
           }
         }
       },
+      "MetadataFilter": {
+        "type": "object",
+        "description": "Allow-listed corpus scope applied before retrieval scoring.",
+        "properties": {
+          "documentIds": { "type": "array", "items": { "type": "string" } },
+          "sourceTypes": { "type": "array", "items": { "type": "string" } },
+          "collections": { "type": "array", "items": { "type": "string" } },
+          "departments": { "type": "array", "items": { "type": "string" } },
+          "versions": { "type": "array", "items": { "type": "string" } },
+          "tags": { "type": "array", "items": { "type": "string" } },
+          "sensitivities": { "type": "array", "items": { "type": "string" } },
+          "effectiveAfter": { "type": "string" },
+          "effectiveBefore": { "type": "string" },
+          "pageStart": { "type": "integer", "minimum": 1 },
+          "pageEnd": { "type": "integer", "minimum": 1 }
+        },
+        "additionalProperties": false
+      },
       "SettingsInput": {
         "type": "object",
         "properties": {
           "projectId": {
             "type": "string",
-            "description": "Optional project id. Defaults to the active project."
+            "description": "Optional project id. Defaults to the stable local project."
           },
           "topK": {
             "type": "integer"
@@ -971,7 +1063,7 @@
         "properties": {
           "projectId": {
             "type": "string",
-            "description": "Optional project id. Defaults to the active project."
+            "description": "Optional project id. Defaults to the stable local project."
           },
           "rating": {
             "type": "string",
@@ -997,7 +1089,7 @@
         "properties": {
           "projectId": {
             "type": "string",
-            "description": "Optional project id. Defaults to the active project."
+            "description": "Optional project id. Defaults to the stable local project."
           },
           "question": {
             "type": "string"
@@ -1171,6 +1263,10 @@
         "required": [
           "local",
           "openaiCompatible",
+          "reranker",
+          "embedding",
+          "queryRewrite",
+          "webFallback",
           "costRates"
         ],
         "properties": {
@@ -1204,6 +1300,26 @@
                 "apiKey"
               ]
             }
+          },
+          "reranker": {
+            "type": "object",
+            "additionalProperties": true,
+            "not": { "required": ["baseUrl", "apiKey"] }
+          },
+          "embedding": {
+            "type": "object",
+            "additionalProperties": true,
+            "not": { "required": ["baseUrl", "apiKey"] }
+          },
+          "queryRewrite": {
+            "type": "object",
+            "additionalProperties": true,
+            "not": { "required": ["baseUrl", "apiKey"] }
+          },
+          "webFallback": {
+            "type": "object",
+            "additionalProperties": true,
+            "not": { "required": ["baseUrl", "apiKey"] }
           },
           "costRates": {
             "type": "object",
@@ -1718,6 +1834,54 @@
           }
         }
       },
+      "RagTraceV2": {
+        "type": "object",
+        "required": [
+          "schemaVersion",
+          "traceId",
+          "runId",
+          "producer",
+          "query",
+          "retrieval",
+          "evidence",
+          "answer"
+        ],
+        "properties": {
+          "schemaVersion": {
+            "const": "tracelens.rag-trace/v2"
+          },
+          "traceId": {
+            "type": "string"
+          },
+          "runId": {
+            "type": "string"
+          },
+          "producer": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "query": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "retrieval": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "answer": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "additionalProperties": true
+      },
       "RunBundle": {
         "type": "object",
         "required": [
@@ -1837,6 +2001,10 @@
           "id": {
             "type": "string"
           },
+          "stableChunkId": {
+            "type": "string",
+            "pattern": "^sha256:[a-f0-9]{64}$"
+          },
           "documentId": {
             "type": "string"
           },
@@ -1850,7 +2018,37 @@
             "type": "string"
           },
           "page": {
-            "type": "integer"
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "pageStart": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "pageEnd": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "pageNumbersExact": {
+            "type": "boolean"
+          },
+          "characterStart": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "characterEnd": {
+            "type": [
+              "integer",
+              "null"
+            ]
           },
           "tokenCount": {
             "type": "integer"

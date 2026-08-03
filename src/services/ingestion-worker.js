@@ -2,6 +2,8 @@ import { id } from '../lib/id.js';
 import { nowIso } from '../lib/time.js';
 
 const ACTIVE_STATUSES = new Set(['queued', 'processing']);
+const MAX_JOBS_PER_PROJECT = 100;
+const MAX_JOBS_TOTAL = 1_000;
 
 export class IngestionWorker {
   constructor({ processDocument }) {
@@ -11,10 +13,12 @@ export class IngestionWorker {
   }
 
   enqueue(input, context = {}) {
+    const projectId = context.projectId || null;
+    this.makeRoom(projectId);
     const createdAt = nowIso();
     const job = {
       id: id('job'),
-      projectId: context.projectId || null,
+      projectId,
       title: String(input.title || '').trim().slice(0, 160) || 'Untitled document',
       sourceType: String(input.sourceType || 'text').trim().slice(0, 40) || 'text',
       status: 'queued',
@@ -28,9 +32,20 @@ export class IngestionWorker {
     };
 
     this.jobs.unshift(job);
-    this.jobs = this.jobs.slice(0, 100);
     queueMicrotask(() => this.drain());
     return sanitizeJob(job);
+  }
+
+  makeRoom(projectId) {
+    const projectJobs = this.jobs.filter((job) => job.projectId === projectId);
+    if (projectJobs.length >= MAX_JOBS_PER_PROJECT) {
+      const removable = [...projectJobs].reverse().find((job) => !ACTIVE_STATUSES.has(job.status));
+      if (!removable) throw queueLimitError('The project ingestion queue is full.');
+      this.jobs = this.jobs.filter((job) => job.id !== removable.id);
+    }
+    if (this.jobs.length >= MAX_JOBS_TOTAL) {
+      throw queueLimitError('The ingestion service is at its global capacity.');
+    }
   }
 
   list(projectId = null) {
@@ -98,6 +113,10 @@ export class IngestionWorker {
       job.input = null;
     }
   }
+}
+
+function queueLimitError(message) {
+  return Object.assign(new Error(message), { statusCode: 429 });
 }
 
 function sanitizeJob(job) {

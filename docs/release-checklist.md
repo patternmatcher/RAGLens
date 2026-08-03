@@ -38,7 +38,7 @@ Manual checks:
 - Confirm `README.md` still reflects the current UI.
 - If Docker is installed, run `npm run docker:runtime`. You can also set `RAGLENS_ADMIN_TOKEN` in a local `.env`, run `docker compose up --build`, and confirm `/api/health` returns `{ "ok": true }`.
 - For release tags, run `RAGLENS_REQUIRE_DOCKER=1 npm run docker:runtime` or use CI so the Docker runtime check is required.
-- For hosted persistence review, apply `docs/database/postgres-pgvector.sql` in a Postgres database with pgvector, install the optional `pg` package in the deployment image, run once with `RAGLENS_STORAGE_DRIVER=postgres` and `RAGLENS_DATABASE_URL`, then apply the output from `npm run postgres:export -- --demo` if you want demo seed data.
+- For hosted persistence review, apply `docs/database/postgres-pgvector.sql` in a Postgres database with pgvector, install the optional `pg` package in the deployment image, and run once with `RAGLENS_STORAGE_DRIVER=postgres`, `RAGLENS_DATABASE_URL`, and `RAGLENS_DATABASE_SSL=true`. Apply the output from `npm run postgres:export -- --demo` if you want demo seed data.
 
 Repository checks:
 

@@ -4,7 +4,8 @@
   activeRun: null,
   compare: null,
   busy: false,
-  jobPollTimer: null
+  jobPollTimer: null,
+  selectedProjectId: null
 };
 
 const viewTitles = {
@@ -57,7 +58,11 @@ try {
 }
 
 async function loadState() {
-  state.data = await api('/api/state');
+  const statePath = state.selectedProjectId
+    ? `/api/state?projectId=${encodeURIComponent(state.selectedProjectId)}`
+    : '/api/state';
+  state.data = await api(statePath);
+  state.selectedProjectId = state.data.activeProjectId;
   const hashParams = new URLSearchParams(location.hash.replace(/^#/, ''));
   const sharedRunId = hashParams.get('run');
   const sharedProjectId = hashParams.get('projectId') || hashParams.get('project');
@@ -296,6 +301,26 @@ function renderDocuments() {
               <option value="pdf">PDF</option>
             </select>
           </div>
+          <div class="grid two">
+            <div class="field">
+              <label for="doc-collection">Collection</label>
+              <input id="doc-collection" name="collection" placeholder="policies" />
+            </div>
+            <div class="field">
+              <label for="doc-department">Department</label>
+              <input id="doc-department" name="department" placeholder="finance" />
+            </div>
+          </div>
+          <div class="grid two">
+            <div class="field">
+              <label for="doc-version">Version</label>
+              <input id="doc-version" name="version" placeholder="v3" />
+            </div>
+            <div class="field">
+              <label for="doc-tags">Tags</label>
+              <input id="doc-tags" name="tags" placeholder="current, approved" />
+            </div>
+          </div>
           <div class="field">
             <label for="doc-file">File</label>
             <input id="doc-file" type="file" accept=".txt,.md,.markdown,.csv,.json,.log,.pdf,application/pdf" />
@@ -347,6 +372,10 @@ function renderWorkbench() {
             ${rangeControl('maxClaims', 'Claims', 1, 6, state.data.settings.maxClaims)}
           </div>
           <div class="grid two">
+            ${rangeControl('candidateDepth', 'Candidates', 4, 100, state.data.settings.candidateDepth || 24, 4)}
+            ${rangeControl('parentContextMaxTokens', 'Context budget', 200, 4000, state.data.settings.parentContextMaxTokens || 1200, 200)}
+          </div>
+          <div class="grid two">
             ${rangeControl('temperature', 'Temperature', 0, 1, state.data.settings.temperature, 0.05)}
             <div class="field">
               <label for="retrievalMode">Retrieval</label>
@@ -354,6 +383,24 @@ function renderWorkbench() {
                 ${optionList(['hybrid', 'keyword', 'vector'], state.data.settings.retrievalMode)}
               </select>
             </div>
+          </div>
+          <div class="grid two">
+            <label class="toggle-row"><input type="checkbox" name="rerank" checked /> Rerank candidates</label>
+            <label class="toggle-row"><input type="checkbox" name="parentContext" /> Include parent context</label>
+          </div>
+          <div class="grid two">
+            <div class="field">
+              <label for="filterCollection">Collection filter</label>
+              <input id="filterCollection" name="filterCollection" placeholder="all collections" />
+            </div>
+            <div class="field">
+              <label for="filterDepartment">Department filter</label>
+              <input id="filterDepartment" name="filterDepartment" placeholder="all departments" />
+            </div>
+          </div>
+          <div class="field">
+            <label for="filterTags">Tag filter</label>
+            <input id="filterTags" name="filterTags" placeholder="comma-separated tags" />
           </div>
           <div class="grid two">
             <div class="field">
@@ -594,6 +641,9 @@ function renderRunDetail(run) {
     <div class="grid">
       <div class="metrics-grid">
         ${metricCard('Retrieval', pct(run.evaluation.metrics.retrievalConfidence), 'confidence')}
+        ${metricCard('Hit Rate', pct(run.evaluation.metrics.hitRateAtK), 'top-k')}
+        ${metricCard('MRR', pct(run.evaluation.metrics.mrr), 'first relevant result')}
+        ${metricCard('NDCG', pct(run.evaluation.metrics.ndcgAtK), 'ranking quality')}
         ${metricCard('Faithfulness', pct(run.evaluation.metrics.faithfulness), 'claim support')}
         ${metricCard('Citations', pct(run.evaluation.metrics.citationCoverage), 'coverage')}
         ${metricCard('Latency', `${run.latencyMs}ms`, run.config.mode || 'pipeline')}
@@ -613,6 +663,7 @@ function renderRunDetail(run) {
               <button class="small-button" type="button" data-download-bundle="${run.id}">Run Bundle</button>
             </div>
           </div>
+          ${run.answer?.abstained || run.retrieval?.abstained ? '<div class="answer-box"><strong>Answer withheld.</strong> The available evidence did not meet the retrieval policy.</div>' : ''}
           <div class="answer-box">${escapeHtml(run.answer.text)}</div>
           <div class="source-heatmap" title="Claim support heatmap" aria-label="${escapeAttr(heatmapSummary(run.evaluation.claims))}">
             <span class="sr-only">${escapeHtml(heatmapSummary(run.evaluation.claims))}</span>
@@ -652,6 +703,8 @@ function renderRunDetail(run) {
             </div>
           </div>
           <div class="chunk-text">${escapeHtml(run.query?.rewritten || run.question)}</div>
+          ${run.query?.expansions?.length ? `<div class="badge-row" style="margin-top: 10px;">${run.query.expansions.map((item) => `<span class="badge">${escapeHtml(item)}</span>`).join('')}</div>` : ''}
+          ${run.query?.subqueries?.length ? `<div class="item-meta" style="margin-top: 10px;">${escapeHtml(run.query.subqueries.join(' / '))}</div>` : ''}
         </section>
         <section class="panel">
           <div class="panel-header">
@@ -663,6 +716,16 @@ function renderRunDetail(run) {
           <div class="chunk-text">${escapeHtml(run.prompt?.text || 'Prompt logging disabled for this run.')}</div>
         </section>
       </div>
+
+      <section class="panel">
+        <div class="panel-header">
+          <div>
+            <h2 class="panel-title">Retrieval Pipeline</h2>
+            <p class="panel-subtitle">Candidate generation through prompt context</p>
+          </div>
+        </div>
+        ${renderRetrievalStages(run.retrieval?.stages || [])}
+      </section>
 
       <section class="panel">
         <div class="panel-header">
@@ -695,7 +758,9 @@ function renderMetricRows(metrics) {
     ['Context relevance', metrics.contextRelevance],
     ['Faithfulness', metrics.faithfulness],
     ['Citation coverage', metrics.citationCoverage],
-    ['Answer focus', metrics.answerFocus]
+    ['Answer focus', metrics.answerFocus],
+    ['Hit rate@k', metrics.hitRateAtK],
+    ['NDCG@k', metrics.ndcgAtK]
   ];
 
   if (metrics.evalAvailable) {
@@ -918,6 +983,25 @@ function renderTrace(trace) {
   `;
 }
 
+function renderRetrievalStages(stages) {
+  if (!stages.length) return emptyState('No staged retrieval telemetry was recorded.');
+  return `
+    <div class="trace-list">
+      ${stages.map((stage, index) => `
+        <div class="trace-step">
+          <div class="trace-index">${index + 1}</div>
+          <div>
+            <div class="item-title">${escapeHtml(stage.name || stage.kind || 'Retrieval stage')}</div>
+            <div class="item-meta">${escapeHtml(stage.kind || '')} / ${Number(stage.candidateCount || 0)} candidates / ${(stage.selectedEvidenceIds || []).length} selected${stage.provider ? ` / ${escapeHtml(stage.provider)}` : ''}${stage.model ? ` / ${escapeHtml(stage.model)}` : ''}</div>
+            ${Object.keys(stage.filter || {}).length ? `<div class="item-meta">filter ${escapeHtml(JSON.stringify(stage.filter))}</div>` : ''}
+          </div>
+          <span class="badge ${stage.status === 'error' ? 'bad' : stage.status === 'warning' ? 'warn' : 'good'}">${escapeHtml(stage.status || 'ok')} / ${Number(stage.latencyMs || 0)}ms</span>
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
 function renderChunk(item, queryTerms) {
   if (!item.chunk) {
     return '';
@@ -928,9 +1012,10 @@ function renderChunk(item, queryTerms) {
       <div class="panel-header">
         <div>
           <p class="item-title">#${item.rank} ${escapeHtml(item.chunk.label)}</p>
-          <p class="item-meta">${escapeHtml(item.document?.title || item.chunk.documentTitle)} / page ${item.chunk.page} / ${escapeHtml(item.chunk.section)} / ${item.chunk.tokenCount} tokens / embedded ${new Date(item.chunk.embeddedAt).toLocaleString()}</p>
+          <p class="item-meta">${escapeHtml(item.document?.title || item.chunk.documentTitle)} / ${escapeHtml(formatSourceLocation(item.chunk))} / ${escapeHtml(item.chunk.section)} / ${item.chunk.tokenCount} tokens / embedded ${new Date(item.chunk.embeddedAt).toLocaleString()}</p>
         </div>
         <div class="badge-row">
+          <span class="badge ${item.contextRole === 'parent' ? 'warn' : 'good'}">${escapeHtml(item.contextRole || 'match')}</span>
           <span class="badge ${badgeTone(item.score)}">score ${pct(item.score)}</span>
           <span class="badge">sim ${pct(item.similarityScore)}</span>
           <span class="badge">rerank ${item.rerankScore}</span>
@@ -1216,6 +1301,13 @@ function renderUsage(runOrUsage = {}) {
     ['Estimated cost', formatUsd(usage.estimatedCostUsd || 0)]
   ];
 
+  if (usage.embeddingCache) {
+    rows.push(
+      ['Embedding cache', `${usage.embeddingCache.hits || 0} hits / ${usage.embeddingCache.misses || 0} misses`],
+      ['Cache hit rate', pct(usage.embeddingCache.hitRate || 0)]
+    );
+  }
+
   if (usage.cost) {
     rows.push(
       ['Cost basis', usage.cost.source || 'unknown'],
@@ -1377,13 +1469,14 @@ async function createProject() {
     return;
   }
   const description = prompt('Project description') || '';
-  await api('/api/projects', {
+  const created = await api('/api/projects', {
     method: 'POST',
     body: {
       name,
       description
     }
   });
+  state.selectedProjectId = created.activeProjectId;
   state.activeRun = null;
   state.compare = null;
   state.view = 'dashboard';
@@ -1395,12 +1488,7 @@ async function switchProject(projectId) {
   if (!projectId || projectId === state.data?.activeProjectId) {
     return;
   }
-  await api('/api/projects/active', {
-    method: 'PATCH',
-    body: {
-      projectId
-    }
-  });
+  state.selectedProjectId = projectId;
   state.activeRun = null;
   state.compare = null;
   await loadState();
@@ -1436,7 +1524,13 @@ function documentPayload(formElement) {
     title: form.get('title'),
     sourceType: form.get('sourceType'),
     text,
-    base64: formElement.dataset.base64 || undefined
+    base64: formElement.dataset.base64 || undefined,
+    metadata: {
+      collection: form.get('collection'),
+      department: form.get('department'),
+      version: form.get('version'),
+      tags: formList(form.get('tags'))
+    }
   };
 }
 
@@ -1497,13 +1591,29 @@ async function submitQuery(event) {
   const form = new FormData(event.currentTarget);
   await runQuestion(form.get('question'), {
     topK: Number(form.get('topK')),
+    candidateDepth: Number(form.get('candidateDepth')),
     maxClaims: Number(form.get('maxClaims')),
     temperature: Number(form.get('temperature')),
     retrievalMode: form.get('retrievalMode'),
+    rerank: form.has('rerank'),
+    parentContext: form.has('parentContext'),
+    parentContextMaxTokens: Number(form.get('parentContextMaxTokens')),
+    metadataFilter: {
+      collections: formList(form.get('filterCollection')),
+      departments: formList(form.get('filterDepartment')),
+      tags: formList(form.get('filterTags'))
+    },
     model: form.get('model'),
     provider: form.get('provider'),
     promptTemplate: form.get('promptTemplate')
   });
+}
+
+function formList(value) {
+  return String(value || '')
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
 }
 
 async function runQuestion(question, config = {}) {
@@ -1732,6 +1842,15 @@ function formatBytes(value) {
     return `${Math.round(number / 1024)} KB`;
   }
   return `${(number / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function formatSourceLocation(chunk = {}) {
+  const start = Number(chunk.pageStart ?? chunk.page);
+  const end = Number(chunk.pageEnd ?? start);
+  if (chunk.pageNumbersExact !== true || !Number.isInteger(start) || start < 1) {
+    return 'page unavailable';
+  }
+  return end > start ? `pages ${start}-${end}` : `page ${start}`;
 }
 
 function assertFileWithinLimit(file, limit, label) {

@@ -30,6 +30,7 @@ const SECURITY_HEADERS = {
 const AUTH_FAILURE_LIMIT = 8;
 const AUTH_FAILURE_WINDOW_MS = 60_000;
 const AUTH_BACKOFF_MS = 2_000;
+const AUTH_FAILURE_MAX_ENTRIES = 2_048;
 const authFailures = new Map();
 
 export function createServer({ config, store }) {
@@ -73,14 +74,15 @@ async function routeApi({ request, response, url, config, store }) {
   requireApiAuth(request, config);
 
   if (request.method === 'GET' && url.pathname === '/api/state') {
-    const state = store.snapshot();
+    const projectId = url.searchParams.get('projectId');
+    const state = store.snapshot(projectId);
     sendJson(response, 200, {
       ...state,
       providers: publicProviderState(config),
       storage: publicStorageState(config),
       observability: publicObservabilityState(config),
       parsers: publicParserState(config),
-      runs: store.listRuns()
+      runs: store.listRuns(projectId)
     });
     return;
   }
@@ -204,6 +206,15 @@ async function routeApi({ request, response, url, config, store }) {
       projectId: url.searchParams.get('projectId')
     });
     sendOptionalJson(response, otel, 'Run not found.');
+    return;
+  }
+
+  const runTraceMatch = url.pathname.match(/^\/api\/query-runs\/([^/]+)\/trace$/);
+  if (request.method === 'GET' && runTraceMatch) {
+    const trace = store.exportRagTrace(runTraceMatch[1], {
+      projectId: url.searchParams.get('projectId')
+    });
+    sendOptionalJson(response, trace, 'Run not found.');
     return;
   }
 
@@ -335,6 +346,7 @@ function requireApiAuth(request, config) {
     return;
   }
 
+  pruneAuthFailures();
   const failureKey = authFailureKey(request);
   const failure = authFailures.get(failureKey);
   if (failure?.blockedUntil && failure.blockedUntil > Date.now()) {
@@ -405,18 +417,32 @@ function sameOrigin(origin, host) {
 }
 
 function authFailureKey(request) {
-  return request.socket?.remoteAddress || 'unknown';
+  return String(request.socket?.remoteAddress || 'unknown').slice(0, 96);
 }
 
 function recordAuthFailure(key) {
   const now = Date.now();
+  pruneAuthFailures(now);
   const previous = authFailures.get(key);
   const count = previous && previous.expiresAt > now ? previous.count + 1 : 1;
+  if (!previous && authFailures.size >= AUTH_FAILURE_MAX_ENTRIES) {
+    authFailures.delete(authFailures.keys().next().value);
+  }
+  authFailures.delete(key);
   authFailures.set(key, {
     count,
     expiresAt: now + AUTH_FAILURE_WINDOW_MS,
     blockedUntil: count >= AUTH_FAILURE_LIMIT ? now + AUTH_BACKOFF_MS : 0
   });
+}
+
+function pruneAuthFailures(now = Date.now()) {
+  for (const [key, failure] of authFailures) {
+    if (failure.expiresAt <= now && failure.blockedUntil <= now) authFailures.delete(key);
+  }
+  while (authFailures.size > AUTH_FAILURE_MAX_ENTRIES) {
+    authFailures.delete(authFailures.keys().next().value);
+  }
 }
 
 function sendJson(response, statusCode, body) {
@@ -502,6 +528,36 @@ function publicProviderState(config) {
       endpointHost: safeEndpointHost(config.openaiCompatible?.baseUrl || ''),
       defaultModel: config.openaiCompatible?.defaultModel || '',
       timeoutMs: config.openaiCompatible?.timeoutMs || 0
+    },
+    reranker: {
+      provider: config.reranker?.provider || 'local',
+      configured: Boolean(config.reranker?.configured),
+      endpointHost: safeEndpointHost(config.reranker?.baseUrl || ''),
+      model: config.reranker?.model || '',
+      timeoutMs: config.reranker?.timeoutMs || 0
+    },
+    embedding: {
+      provider: config.embedding?.provider || 'local',
+      configured: Boolean(config.embedding?.configured),
+      endpointHost: safeEndpointHost(config.embedding?.baseUrl || ''),
+      model: config.embedding?.model || '',
+      batchSize: config.embedding?.batchSize || 0,
+      remoteEgressAllowed: config.embedding?.remoteEgressAllowed === true
+    },
+    queryRewrite: {
+      provider: config.queryRewrite?.provider || 'local',
+      configured: Boolean(config.queryRewrite?.configured),
+      endpointHost: safeEndpointHost(config.queryRewrite?.baseUrl || ''),
+      model: config.queryRewrite?.model || '',
+      remoteEgressAllowed: config.queryRewrite?.remoteEgressAllowed === true
+    },
+    webFallback: {
+      enabled: config.webFallback?.enabled === true,
+      endpointHost: safeEndpointHost(config.webFallback?.baseUrl || ''),
+      maxResults: config.webFallback?.maxResults || 0,
+      allowedDomains: config.webFallback?.allowedDomains || [],
+      minConfidence: config.webFallback?.minConfidence ?? 0.32,
+      remoteEgressAllowed: config.webFallback?.remoteEgressAllowed === true
     },
     costRates: {
       configured: Boolean(config.costRates?.configured),

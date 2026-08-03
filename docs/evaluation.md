@@ -50,7 +50,7 @@ The inspector renders a claim-by-source matrix for each run. Rows are answer cla
 
 The Compare screen treats one run as a baseline and another as a candidate. It reports metric deltas, configuration changes, prompt template fingerprint/preview, chunking snapshot, answer text and claim counts, exact retrieved chunk overlap, stable source overlap, one-sided chunks, and warning types that were added or resolved.
 
-Stable source overlap groups retrieved evidence by document and section, so chunk-size experiments stay readable even when reindexing creates new chunk ids. For chunk-size experiments, update chunk settings, reindex the active project with `POST /api/documents/reindex`, ask the same question again, then compare the baseline and candidate runs.
+Stable source overlap groups retrieved evidence by document and section, so chunk-size experiments stay readable even when reindexing creates new chunk ids. For chunk-size experiments, pass the same `projectId` while updating chunk settings, reindexing with `POST /api/documents/reindex`, asking the question again, and comparing the baseline and candidate runs.
 
 ## Practical Thresholds
 

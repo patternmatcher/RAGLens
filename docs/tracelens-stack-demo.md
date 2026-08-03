@@ -25,4 +25,4 @@ Citation coverage: 1 -> 1
 Decision: HOLD
 ```
 
-The command writes generated artifacts under `corpora/results/tracelens-stack-demo`. The directory includes the original OTLP payloads, normalized TraceLens traces, policy gates, replay and evidence reports, a review workflow, a root-cause report, a release decision, and a verified redacted review bundle. The directory is ignored by Git.
+The command writes generated artifacts under `corpora/results/tracelens-stack-demo`. The directory includes the staged `tracelens.rag-trace/v2` payloads used by the workflow, generic OTLP copies, normalized TraceLens traces, policy gates, replay and evidence reports, a review workflow, a root-cause report, a release decision, and a verified redacted review bundle. The directory is ignored by Git.

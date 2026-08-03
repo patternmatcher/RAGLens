@@ -16,6 +16,7 @@ const expectedRoutes = [
   ['GET', '/api/query-runs/{id}'],
   ['POST', '/api/query-runs/{id}/feedback'],
   ['GET', '/api/query-runs/{id}/otel'],
+  ['GET', '/api/query-runs/{id}/trace'],
   ['GET', '/api/query-runs/{id}/bundle'],
   ['GET', '/api/share/{id}'],
   ['GET', '/api/compare'],
@@ -37,6 +38,7 @@ const expectedResponseSchemas = new Map([
   ['GET /api/query-runs/{id}', 'HydratedRun'],
   ['POST /api/query-runs/{id}/feedback', 'Feedback'],
   ['GET /api/query-runs/{id}/otel', 'OtlpTrace'],
+  ['GET /api/query-runs/{id}/trace', 'RagTraceV2'],
   ['GET /api/query-runs/{id}/bundle', 'RunBundle'],
   ['GET /api/share/{id}', 'HydratedRun'],
   ['GET /api/compare', 'CompareResult'],
@@ -121,6 +123,7 @@ const routeNeedles = [
   "/^\\/api\\/query-runs\\/([^/]+)$/",
   "/^\\/api\\/query-runs\\/([^/]+)\\/feedback$/",
   "/^\\/api\\/query-runs\\/([^/]+)\\/otel$/",
+  "/^\\/api\\/query-runs\\/([^/]+)\\/trace$/",
   "/^\\/api\\/query-runs\\/([^/]+)\\/bundle$/",
   "/^\\/api\\/share\\/([^/]+)$/",
   "url.pathname === '/api/compare'"
@@ -155,6 +158,21 @@ for (const required of ['providers', 'storage', 'observability', 'parsers']) {
 const providerSchemaText = JSON.stringify(spec.components?.schemas?.ProviderStatus || {});
 if (!providerSchemaText.includes('"not":{"required":["baseUrl","apiKey"]}')) {
   failures.push('ProviderStatus schema must forbid raw provider baseUrl and apiKey.');
+}
+for (const provider of ['reranker', 'embedding', 'queryRewrite', 'webFallback']) {
+  if (!spec.components?.schemas?.ProviderStatus?.required?.includes(provider)) {
+    failures.push(`ProviderStatus schema must require ${provider} status.`);
+  }
+}
+const queryInput = spec.components?.schemas?.QueryRunInput?.properties || {};
+for (const field of ['candidateDepth', 'parentContext', 'parentContextMaxTokens', 'metadataFilter']) {
+  if (!queryInput[field]) failures.push(`QueryRunInput must document ${field}.`);
+}
+if (!spec.components?.schemas?.DocumentInput?.properties?.metadata) {
+  failures.push('DocumentInput must document allow-listed metadata.');
+}
+if (spec.components?.schemas?.MetadataFilter?.additionalProperties !== false) {
+  failures.push('MetadataFilter must reject unknown fields.');
 }
 const storageSchemaText = JSON.stringify(spec.components?.schemas?.StorageStatus || {});
 if (!storageSchemaText.includes('"not":{"required":["databaseUrl"]}')) {

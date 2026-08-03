@@ -9,6 +9,7 @@ import { buildOtlpPayload, exportOtlpTrace } from '../src/observability/otel.js'
 import { runRagInspection } from '../src/rag/pipeline.js';
 import { rewriteQuery } from '../src/rag/query.js';
 import { retrieve } from '../src/rag/retriever.js';
+import { fetchNoRedirect, readJsonResponse, readTextResponse } from '../src/security/http-client.js';
 
 const options = parseArgs(process.argv.slice(2));
 validateOptions(options);
@@ -28,7 +29,7 @@ const objectStoreModule = await import(pathToFileURL(path.join(traceLensDir, 'sr
 const traceCore = await import(pathToFileURL(path.join(traceLensDir, 'src', 'shared', 'trace-core.js')));
 
 const providerHeaders = options.apiKey ? { Authorization: `Bearer ${options.apiKey}` } : {};
-const health = await fetchJson(`${options.baseUrl.replace(/\/v1\/?$/, '')}/health`, providerHeaders);
+const health = await fetchHealth(`${options.baseUrl.replace(/\/v1\/?$/, '')}/health`, providerHeaders);
 const models = await fetchJson(`${options.baseUrl.replace(/\/+$/, '')}/models`, providerHeaders);
 if (!health.ok) throw new Error('The local vLLM bridge is not healthy.');
 if (!(models.data || []).some((item) => item.id === options.model)) {
@@ -37,6 +38,8 @@ if (!(models.data || []).some((item) => item.id === options.model)) {
 
 const corpus = JSON.parse(await readFile(path.join(rootDir, 'corpora', 'normalized', `${options.corpus}.json`), 'utf8'));
 const workload = prepareWorkload(corpus, options);
+const metricsUrl = `${options.baseUrl.replace(/\/v1\/?$/, '')}/metrics`;
+const metricsBefore = parseMetrics(await fetchText(metricsUrl, providerHeaders));
 const gpuBefore = options.gpuSnapshots ? readGpuSnapshot() : null;
 const collectorScope = { organizationId: 'org-local-validation', projectId: 'raglens-open-weight' };
 const issued = hostedAuth.issueHostedApiKey({
@@ -100,6 +103,8 @@ try {
     id: `run_${randomUUID().replace(/-/g, '')}`,
     projectId: collectorScope.projectId
   }, workload);
+  const exportedTraceId = buildOtlpPayload(run, { includeContent: false })
+    .resourceSpans[0]?.scopeSpans[0]?.spans[0]?.traceId;
 
   exportStatus = await exportOtlpTrace(run, {
     endpoint: `${collector.url}/v1/traces`,
@@ -115,18 +120,15 @@ try {
   });
   if (!exportStatus.ok) throw new Error(`TraceLens collector export failed: ${exportStatus.error}`);
 
-  const [item] = queue.snapshot().items;
-  if (!item?.payload?.object) throw new Error('TraceLens collector did not queue the exported trace.');
+  const item = queue.snapshot().items.find((candidate) => candidate.payload?.traceId === exportedTraceId);
+  if (!item?.payload?.object) throw new Error('TraceLens collector did not queue the current exported trace.');
   normalizedTrace = await objectStore.getJson(item.payload.object, { ...collectorScope, kind: 'trace' });
 } finally {
   await new Promise((resolve) => collector.server.close(resolve));
 }
 
-const metricsText = await fetchText(
-  `${options.baseUrl.replace(/\/v1\/?$/, '')}/metrics`,
-  providerHeaders
-);
-const bridgeMetrics = parseMetrics(metricsText);
+const metricsText = await fetchText(metricsUrl, providerHeaders);
+const bridgeMetrics = diffMetrics(metricsBefore, parseMetrics(metricsText));
 const gpuAfter = options.gpuSnapshots ? readGpuSnapshot() : null;
 normalizedTrace.modelServing = {
   ...(normalizedTrace.modelServing || {}),
@@ -295,21 +297,45 @@ function parseMetrics(text) {
   const values = new Map();
   for (const line of String(text).split(/\r?\n/)) {
     const match = line.match(/^([a-zA-Z_:][a-zA-Z0-9_:]*)(?:\{[^}]*\})?\s+(-?\d+(?:\.\d+)?(?:e[+-]?\d+)?)/i);
-    if (match) values.set(match[1], Number(match[2]));
+    if (match) values.set(match[1], (values.get(match[1]) || 0) + Number(match[2]));
   }
-  const outputTokens = values.get('raglens_vllm_bridge_output_tokens_total')
-    || values.get('vllm_generation_tokens_total')
-    || 0;
-  const tokensPerSecond = values.get('raglens_vllm_bridge_tokens_per_second') || 0;
-  const generationSeconds = values.get('vllm_request_decode_time_seconds')
-    || (tokensPerSecond ? outputTokens / tokensPerSecond : 0);
+  const metric = (...names) => {
+    const name = names.find((candidate) => values.has(candidate));
+    return name ? values.get(name) : 0;
+  };
+  const outputTokens = metric(
+    'raglens_vllm_bridge_output_tokens_total',
+    'vllm_generation_tokens_total',
+    'vllm:generation_tokens_total'
+  );
+  const generationSeconds = metric(
+    'vllm_request_decode_time_seconds_sum',
+    'vllm:request_decode_time_seconds_sum'
+  );
+  const reportedTokensPerSecond = metric('raglens_vllm_bridge_tokens_per_second');
   return {
-    requests: values.get('raglens_vllm_bridge_requests_total') || 0,
-    failures: values.get('raglens_vllm_bridge_failures_total') || 0,
-    inputTokens: values.get('vllm_prompt_tokens_total') || 0,
+    requests: metric('raglens_vllm_bridge_requests_total', 'vllm:request_success_total'),
+    failures: metric('raglens_vllm_bridge_failures_total'),
+    inputTokens: metric('vllm_prompt_tokens_total', 'vllm:prompt_tokens_total'),
     outputTokens,
-    tokensPerSecond,
-    loadSeconds: values.get('raglens_vllm_bridge_load_seconds') || 0,
+    tokensPerSecond: reportedTokensPerSecond
+      || (generationSeconds ? outputTokens / generationSeconds : 0),
+    loadSeconds: metric('raglens_vllm_bridge_load_seconds'),
+    generationSeconds
+  };
+}
+
+function diffMetrics(before, after) {
+  const difference = (key) => Math.max(0, Number(after[key] || 0) - Number(before[key] || 0));
+  const outputTokens = difference('outputTokens');
+  const generationSeconds = difference('generationSeconds');
+  return {
+    requests: difference('requests'),
+    failures: difference('failures'),
+    inputTokens: difference('inputTokens'),
+    outputTokens,
+    tokensPerSecond: generationSeconds ? outputTokens / generationSeconds : after.tokensPerSecond,
+    loadSeconds: difference('loadSeconds'),
     generationSeconds
   };
 }
@@ -404,7 +430,7 @@ function parseArgs(args) {
     maxOutputTokens: 64,
     providerTimeoutMs: 1_200_000,
     gpuSnapshots: true,
-    apiKey: process.env.VLLM_API_KEY || process.env.RAGLENS_OPENAI_API_KEY || ''
+    apiKey: process.env.VLLM_API_KEY || ''
   };
   for (const arg of args) {
     if (arg.startsWith('--tracelens-dir=')) options.traceLensDir = arg.slice('--tracelens-dir='.length);
@@ -426,15 +452,22 @@ function parseArgs(args) {
 }
 
 async function fetchJson(url, headers = {}) {
-  const response = await fetch(url, { headers, signal: AbortSignal.timeout(5_000) });
+  const response = await fetchNoRedirect(globalThis.fetch, url, { headers, signal: AbortSignal.timeout(5_000) });
   if (!response.ok) throw new Error(`${url} returned HTTP ${response.status}.`);
-  return response.json();
+  return readJsonResponse(response, { label: 'vLLM model API', maxBytes: 1024 * 1024 });
+}
+
+async function fetchHealth(url, headers = {}) {
+  const response = await fetchNoRedirect(globalThis.fetch, url, { headers, signal: AbortSignal.timeout(5_000) });
+  if (!response.ok) throw new Error(`${url} returned HTTP ${response.status}.`);
+  const body = await readTextResponse(response, { label: 'vLLM health API', maxBytes: 64 * 1024 });
+  return body ? JSON.parse(body) : { ok: true, status: response.status };
 }
 
 async function fetchText(url, headers = {}) {
-  const response = await fetch(url, { headers, signal: AbortSignal.timeout(5_000) });
+  const response = await fetchNoRedirect(globalThis.fetch, url, { headers, signal: AbortSignal.timeout(5_000) });
   if (!response.ok) throw new Error(`${url} returned HTTP ${response.status}.`);
-  return response.text();
+  return readTextResponse(response, { label: 'vLLM metrics API', maxBytes: 2 * 1024 * 1024 });
 }
 
 function runCommand(command, args, cwd) {

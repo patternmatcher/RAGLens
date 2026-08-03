@@ -3,7 +3,9 @@ import { readJson, writeJson } from '../lib/json.js';
 import { nowIso } from '../lib/time.js';
 import { createDemoState } from '../demo.js';
 import { buildOtlpPayload, exportOtlpTrace } from '../observability/otel.js';
-import { chunkDocument, createDocument } from '../rag/chunker.js';
+import { buildRagTraceV2 } from '../observability/rag-trace-v2.js';
+import { chunkDocument, createDocument, stableChunkIdentifier } from '../rag/chunker.js';
+import { EmbeddingCache, embedChunks } from '../rag/embedding-provider.js';
 import { extractPdfTextWithFallback } from '../rag/pdf.js';
 import { runRagInspection } from '../rag/pipeline.js';
 import { redactSecrets } from '../security/redact.js';
@@ -39,6 +41,8 @@ export class RaglensStore {
   constructor(config) {
     this.config = config;
     this.state = null;
+    this.saveQueue = Promise.resolve();
+    this.embeddingCache = new EmbeddingCache();
     this.ingestionWorker = new IngestionWorker({
       processDocument: (input, context) => this.addDocumentToProject(input, context.projectId)
     });
@@ -47,25 +51,34 @@ export class RaglensStore {
   async load() {
     const fallback = this.config.autoSeed ? createDemoState() : createEmptyState();
     this.state = normalizeState(await readJson(this.config.dataFile, fallback));
+    this.embeddingCache = new EmbeddingCache(this.state.embeddingCache);
+    await this.refreshEmbeddingProfiles();
     await this.save();
     return this.snapshot();
   }
 
-  snapshot() {
-    const activeProjectId = this.activeProjectId();
+  snapshot(projectId = null) {
+    const activeProjectId = this.resolveProjectId(projectId);
     return JSON.parse(JSON.stringify({
       ...sanitizePublicState(scopedState(this.state, activeProjectId)),
-      ingestionJobs: this.listIngestionJobs()
+      ingestionJobs: this.listIngestionJobs(activeProjectId)
     }));
   }
 
   async save() {
-    this.state.updatedAt = nowIso();
-    await writeJson(this.config.dataFile, this.state);
+    const operation = this.saveQueue.then(async () => {
+      this.state.embeddingCache = this.embeddingCache.toJSON();
+      this.state.updatedAt = nowIso();
+      await writeJson(this.config.dataFile, this.state);
+    });
+    this.saveQueue = operation.catch(() => {});
+    return operation;
   }
 
   async resetDemo() {
     this.state = normalizeState(createDemoState());
+    this.embeddingCache = new EmbeddingCache(this.state.embeddingCache);
+    await this.refreshEmbeddingProfiles();
     this.ingestionWorker.clear();
     await this.save();
     return this.snapshot();
@@ -95,9 +108,8 @@ export class RaglensStore {
     };
 
     this.state.projects.unshift(project);
-    this.state.activeProjectId = project.id;
     await this.save();
-    return this.snapshot();
+    return this.snapshot(project.id);
   }
 
   async setActiveProject(projectId) {
@@ -107,10 +119,7 @@ export class RaglensStore {
       return null;
     }
 
-    this.state.activeProjectId = idValue;
-    this.state.settings = this.projectSettings(idValue);
-    await this.save();
-    return this.snapshot();
+    return this.snapshot(idValue);
   }
 
   async addDocument(input) {
@@ -138,21 +147,24 @@ export class RaglensStore {
     const normalizedInput = await normalizeDocumentInput(input, this.config.pdfTextExtractor);
     const validated = validateDocumentInput(normalizedInput, this.state);
     const titleRedaction = redactForSettings(validated.title, settings);
-    const redaction = redactForSettings(validated.text, settings);
+    const content = prepareDocumentContent(validated.text, normalizedInput.pages, settings);
     const document = createDocument({
       ...validated,
       projectId: resolvedProjectId,
       title: titleRedaction.text,
-      text: redaction.text,
+      text: content.text,
       metadata: {
-        redactions: [...titleRedaction.findings, ...redaction.findings],
-        pdfExtraction: normalizedInput.metadata?.pdfExtraction || null
+        ...validated.metadata,
+        redactions: [...titleRedaction.findings, ...content.findings],
+        pdfExtraction: normalizedInput.metadata?.pdfExtraction || null,
+        pageSpans: content.pageSpans
       }
     });
-    const chunks = chunkDocument(document, {
+    const chunked = chunkDocument(document, {
       maxTokens: settings.chunkTokens,
       overlapTokens: settings.overlapTokens
     });
+    const { chunks } = await embedChunks(chunked, this.embeddingOptions(resolvedProjectId));
     validateChunkCapacity(this.state, chunks.length);
 
     this.state.documents.unshift(document);
@@ -192,12 +204,13 @@ export class RaglensStore {
       updatedAt: reindexedAt
     }));
     const refreshedById = new Map(refreshedDocuments.map((document) => [document.id, document]));
-    const chunks = refreshedDocuments.flatMap((document) =>
+    const chunked = refreshedDocuments.flatMap((document) =>
       chunkDocument(document, {
         maxTokens: settings.chunkTokens,
         overlapTokens: settings.overlapTokens
       })
     );
+    const { chunks } = await embedChunks(chunked, this.embeddingOptions(projectId));
 
     if (otherChunks.length + chunks.length > LIMITS.chunksMax) {
       throw httpError(409, `Chunk limit reached. Limit is ${LIMITS.chunksMax} chunks.`);
@@ -238,6 +251,7 @@ export class RaglensStore {
       retrieveContext,
       config: {
         topK: hasInput('topK') ? query.topK : settings.topK,
+        candidateDepth: hasInput('candidateDepth') ? query.candidateDepth : 24,
         maxClaims: hasInput('maxClaims') ? query.maxClaims : settings.maxClaims,
         temperature: hasInput('temperature') ? query.temperature : settings.temperature,
         model: hasInput('model') && query.model ? query.model : settings.model,
@@ -255,22 +269,35 @@ export class RaglensStore {
           ? query.allowUnsafeProviderEgress
           : false,
         rerank: hasInput('rerank') ? query.rerank : settings.rerank !== false,
+        parentContext: query.parentContext,
+        parentContextMaxTokens: query.parentContextMaxTokens,
+        metadataFilter: query.metadataFilter,
         expectedSource: expected?.expectedSource,
         expectedAnswer: expected?.expectedAnswer,
         openaiCompatible: this.config.openaiCompatible,
+        reranker: this.config.reranker,
+        embedding: this.embeddingOptions(projectId),
+        queryRewrite: this.config.queryRewrite,
+        webFallback: this.config.webFallback,
         costRates: this.config.costRates
       }
     });
+    const retrievalEvidence = inspection.retrievalEvidence || [];
+    delete inspection.retrievalEvidence;
     const run = {
       id: id('run'),
       projectId,
       ...inspection
     };
-    run.evidenceSnapshot = createEvidenceSnapshot(run.retrieved, projectChunks, projectDocuments);
+    run.evidenceSnapshot = createEvidenceSnapshot(
+      retrievalEvidence.map((chunk, index) => ({ chunkId: chunk.id, rank: index + 1 })),
+      [...projectChunks, ...retrievalEvidence],
+      projectDocuments
+    );
     run.redactions = [...redactedQuestion.findings, ...redactedPromptTemplate.findings];
 
     this.state.runs.unshift(run);
-    this.state.runs = this.state.runs.slice(0, 100);
+    this.state.runs = limitProjectItems(this.state.runs, projectId, 100);
     run.observability = {
       otelExport: await exportOtlpTrace(hydrateRun(run, this.state.chunks, this.state.documents), this.config.otel)
     };
@@ -300,9 +327,9 @@ export class RaglensStore {
     return hydrateRun(run, projectChunks, projectDocuments);
   }
 
-  listRuns() {
-    const projectId = this.activeProjectId();
-    return itemsForProject(this.state.runs, projectId).map((run) => summarizeRun(run));
+  listRuns(projectId = null) {
+    const resolvedProjectId = this.resolveProjectId(projectId);
+    return itemsForProject(this.state.runs, resolvedProjectId).map((run) => summarizeRun(run));
   }
 
   compareRuns(leftId, rightId, options = {}) {
@@ -442,6 +469,18 @@ export class RaglensStore {
     });
   }
 
+  exportRagTrace(runId, options = {}) {
+    const run = this.hydrateRun(runId, options);
+    if (!run) {
+      return null;
+    }
+
+    return buildRagTraceV2(run, {
+      serviceName: this.config.otel?.serviceName || 'raglens',
+      includeContent: this.config.otel?.includeContent === true
+    });
+  }
+
   exportRunBundle(runId, options = {}) {
     const run = this.hydrateRun(runId, options);
     if (!run) {
@@ -494,6 +533,27 @@ export class RaglensStore {
     const resolvedProjectId = this.resolveProjectId(projectId);
     return setProjectSettingsForState(this.state, resolvedProjectId, settings);
   }
+
+  embeddingOptions(projectId) {
+    return {
+      ...(this.config.embedding || { provider: 'local', model: 'local-hash-embedding-v1' }),
+      projectId,
+      cache: this.embeddingCache
+    };
+  }
+
+  async refreshEmbeddingProfiles() {
+    let refreshedCount = 0;
+    for (const project of this.state.projects || []) {
+      const projectChunks = itemsForProject(this.state.chunks, project.id);
+      if (!projectChunks.some((chunk) => !matchesEmbeddingProfile(chunk, this.config.embedding))) continue;
+      const { chunks } = await embedChunks(projectChunks, this.embeddingOptions(project.id));
+      refreshedCount += chunks.length;
+      const refreshed = new Map(chunks.map((chunk) => [chunk.id, chunk]));
+      this.state.chunks = this.state.chunks.map((chunk) => refreshed.get(chunk.id) || chunk);
+    }
+    return refreshedCount;
+  }
 }
 
 export function createEmptyState() {
@@ -518,6 +578,7 @@ export function createEmptyState() {
     chunks: [],
     runs: [],
     evalQuestions: [],
+    embeddingCache: [],
     settings
   };
 }
@@ -584,7 +645,7 @@ function createEvidenceSnapshot(retrieved, chunks, documents) {
   );
   const snapshotDocuments = uniqueBy(
     snapshotChunks
-      .map((chunk) => byDocId.get(chunk.documentId))
+      .map((chunk) => byDocId.get(chunk.documentId) || documentFromExternalChunk(chunk))
       .filter(Boolean)
       .map(documentMetadata),
     'id'
@@ -593,6 +654,21 @@ function createEvidenceSnapshot(retrieved, chunks, documents) {
   return {
     documents: snapshotDocuments,
     chunks: snapshotChunks
+  };
+}
+
+function documentFromExternalChunk(chunk) {
+  if (chunk.sourceType !== 'web') return null;
+  return {
+    id: chunk.documentId,
+    projectId: chunk.projectId || null,
+    title: chunk.documentTitle,
+    sourceType: 'web',
+    checksum: String(chunk.stableChunkId || '').replace(/^sha256:/, '').slice(0, 16),
+    wordCount: chunk.tokenCount || 0,
+    status: 'external-evidence',
+    metadata: chunk.documentMetadata || {},
+    createdAt: chunk.createdAt || nowIso()
   };
 }
 
@@ -664,14 +740,24 @@ function projectMetadata(project) {
 function chunkSnapshot(chunk) {
   return {
     id: chunk.id,
+    stableChunkId: chunk.stableChunkId || chunk.id,
     projectId: chunk.projectId || null,
     documentId: chunk.documentId,
     documentTitle: chunk.documentTitle,
+    sourceType: chunk.sourceType || 'text',
+    documentMetadata: chunk.documentMetadata || {},
     label: chunk.label,
     section: chunk.section,
     page: chunk.page,
+    pageStart: chunk.pageStart ?? chunk.page ?? null,
+    pageEnd: chunk.pageEnd ?? chunk.page ?? null,
+    pageNumbersExact: chunk.pageNumbersExact === true,
+    characterStart: chunk.characterStart ?? null,
+    characterEnd: chunk.characterEnd ?? null,
     tokenCount: chunk.tokenCount,
     embeddingModel: chunk.embeddingModel,
+    embeddingProvider: chunk.embeddingProvider || 'local',
+    embeddingDimensions: Number(chunk.embeddingDimensions || chunk.embedding?.length || 0),
     embeddedAt: chunk.embeddedAt,
     createdAt: chunk.createdAt,
     text: chunk.text
@@ -957,6 +1043,7 @@ async function normalizeDocumentInput(input, pdfTextExtractor = {}) {
     return {
       ...input,
       text: extracted.text,
+      pages: extracted.pages,
       metadata: {
         ...(input.metadata || {}),
         pdfExtraction: extracted.metadata
@@ -965,6 +1052,44 @@ async function normalizeDocumentInput(input, pdfTextExtractor = {}) {
   }
 
   return input;
+}
+
+function prepareDocumentContent(text, pages, settings) {
+  if (!Array.isArray(pages) || !pages.length) {
+    const redaction = redactForSettings(text, settings);
+    return {
+      text: redaction.text,
+      findings: redaction.findings,
+      pageSpans: []
+    };
+  }
+
+  const parts = [];
+  const pageSpans = [];
+  const findings = [];
+  let cursor = 0;
+
+  for (const page of pages) {
+    const redaction = redactForSettings(page.text, settings);
+    if (!redaction.text) continue;
+    if (parts.length) cursor += 2;
+    const start = cursor;
+    parts.push(redaction.text);
+    cursor += redaction.text.length;
+    pageSpans.push({
+      pageNumber: page.pageNumber ?? null,
+      exact: page.exact === true,
+      characterStart: start,
+      characterEnd: cursor
+    });
+    findings.push(...redaction.findings);
+  }
+
+  return {
+    text: parts.join('\n\n'),
+    findings,
+    pageSpans
+  };
 }
 
 function decodePdfBase64(value) {
@@ -1027,9 +1152,23 @@ export function normalizeState(state) {
   }));
   normalized.chunks = (normalized.chunks || []).map((chunk) => {
     const document = normalized.documents.find((item) => item.id === chunk.documentId);
+    const pageNumbersExact = chunk.pageNumbersExact === true;
+    const page = pageNumbersExact ? chunk.page ?? chunk.pageStart ?? null : null;
     return {
       ...chunk,
-      projectId: projectIds.has(chunk.projectId) ? chunk.projectId : document?.projectId || normalized.activeProjectId
+      projectId: projectIds.has(chunk.projectId) ? chunk.projectId : document?.projectId || normalized.activeProjectId,
+      stableChunkId: chunk.stableChunkId || stableChunkIdentifier(
+        document || { checksum: chunk.documentId || '' },
+        chunk.text || '',
+        chunk.section || chunk.heading || '',
+        page
+      ),
+      page,
+      pageStart: pageNumbersExact ? chunk.pageStart ?? page : null,
+      pageEnd: pageNumbersExact ? chunk.pageEnd ?? page : null,
+      pageNumbersExact,
+      characterStart: chunk.characterStart ?? null,
+      characterEnd: chunk.characterEnd ?? null
     };
   });
   normalized.runs = (normalized.runs || []).map((run) => ({
@@ -1040,6 +1179,7 @@ export function normalizeState(state) {
     ...item,
     projectId: projectIds.has(item.projectId) ? item.projectId : normalized.activeProjectId
   }));
+  normalized.embeddingCache = Array.isArray(normalized.embeddingCache) ? normalized.embeddingCache : [];
 
   return normalized;
 }
@@ -1056,13 +1196,26 @@ function scopedState(state, projectId) {
   };
 }
 
+function limitProjectItems(items, projectId, limit) {
+  let projectItems = 0;
+  return items.filter((item) => item.projectId !== projectId || projectItems++ < limit);
+}
+
 function sanitizePublicState(state) {
+  const publicState = { ...state };
+  delete publicState.embeddingCache;
   return {
-    ...state,
+    ...publicState,
     projects: state.projects.map(projectMetadata),
     documents: state.documents.map(documentMetadata),
     chunks: state.chunks.map(chunkSnapshot)
   };
+}
+
+function matchesEmbeddingProfile(chunk, embeddingConfig = {}) {
+  const provider = embeddingConfig.provider || 'local';
+  const model = embeddingConfig.model || 'local-hash-embedding-v1';
+  return (chunk.embeddingProvider || 'local') === provider && chunk.embeddingModel === model;
 }
 
 function defaultSettings() {

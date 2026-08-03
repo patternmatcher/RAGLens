@@ -15,11 +15,16 @@ for (const phrase of [
   'CREATE TABLE IF NOT EXISTS raglens_retrieved_chunks',
   'CREATE TABLE IF NOT EXISTS raglens_feedback',
   'CREATE TABLE IF NOT EXISTS raglens_eval_questions',
-  'embedding vector(64) NOT NULL',
+  'CREATE TABLE IF NOT EXISTS raglens_embedding_cache',
+  'embedding vector NOT NULL',
+  'embedding_provider text NOT NULL',
+  'embedding_dimensions integer NOT NULL',
   'embedding_model text NOT NULL DEFAULT',
+  'stable_chunk_id text NOT NULL',
+  'page_numbers_exact boolean NOT NULL DEFAULT false',
   'evidence_snapshot jsonb NOT NULL',
   'ON DELETE CASCADE',
-  'USING hnsw (embedding vector_cosine_ops)',
+  'USING hnsw ((embedding::vector(64)) vector_cosine_ops)',
   'raglens_eval_questions_project_question_unique_idx'
 ]) {
   requireSql(phrase, `schema includes ${phrase}`);
@@ -30,7 +35,8 @@ for (const table of [
   'raglens_chunks',
   'raglens_query_runs',
   'raglens_feedback',
-  'raglens_eval_questions'
+  'raglens_eval_questions',
+  'raglens_embedding_cache'
 ]) {
   requireTableColumn(table, 'project_id text NOT NULL', `${table} is project scoped`);
   requireSql(`REFERENCES raglens_projects(id) ON DELETE CASCADE`, `${table} cascades from projects`);
@@ -68,10 +74,12 @@ for (const phrase of [
   'insertRetrievedChunk',
   'upsertEvalQuestion',
   'insertFeedback',
+  'insertEmbeddingCache',
+  'listEmbeddingCache',
   'assertSchema',
   'deleteStaleDocuments',
-  '$14::vector',
-  'embedding <=> q.embedding',
+  '$20::vector',
+  'embedding::vector(${dimensions}) <=> q.embedding',
   'WHERE project_id = $1'
 ]) {
   requireStatements(phrase, `statement module includes ${phrase}`);

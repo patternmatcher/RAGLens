@@ -1,6 +1,7 @@
+import { createHash } from 'node:crypto';
 import { id } from '../lib/id.js';
 import { nowIso } from '../lib/time.js';
-import { EMBEDDING_MODEL, embedText } from './embedding.js';
+import { EMBEDDING_DIMENSIONS, EMBEDDING_MODEL, embedText } from './embedding.js';
 import { tokenize, termCounts } from './tokenize.js';
 
 const DEFAULT_CHUNK_TOKENS = 120;
@@ -31,10 +32,12 @@ export function chunkDocument(document, options = {}) {
     Math.max(0, Number(options.overlapTokens || DEFAULT_OVERLAP_TOKENS)),
     Math.floor(maxTokens / 2)
   );
-  const sections = splitIntoSections(document.text);
+  const sourceSegments = sourceSegmentsForDocument(document);
   const chunks = [];
 
-  for (const section of sections) {
+  for (const sourceSegment of sourceSegments) {
+    const sections = splitIntoSections(sourceSegment.text);
+    for (const section of sections) {
     const paragraphs = section.body
       .split(/\n{2,}/)
       .map((part) => part.trim())
@@ -47,7 +50,7 @@ export function chunkDocument(document, options = {}) {
       const paragraphTokens = tokenize(paragraph, { keepStopwords: true });
 
       if (buffer.length && buffer.length + paragraphTokens.length > maxTokens) {
-        chunks.push(makeChunk(document, section, bufferText.join('\n\n'), chunks.length));
+        chunks.push(makeChunk(document, section, bufferText.join('\n\n'), chunks.length, sourceSegment));
         buffer = buffer.slice(Math.max(0, buffer.length - overlapTokens));
         bufferText = buffer.length ? [buffer.join(' ')] : [];
       }
@@ -57,7 +60,7 @@ export function chunkDocument(document, options = {}) {
         let start = 0;
         while (start < words.length) {
           const slice = words.slice(start, start + maxTokens).join(' ');
-          chunks.push(makeChunk(document, section, slice, chunks.length));
+          chunks.push(makeChunk(document, section, slice, chunks.length, sourceSegment));
           start += Math.max(1, maxTokens - overlapTokens);
         }
         buffer = [];
@@ -69,7 +72,8 @@ export function chunkDocument(document, options = {}) {
     }
 
     if (bufferText.length) {
-      chunks.push(makeChunk(document, section, bufferText.join('\n\n'), chunks.length));
+      chunks.push(makeChunk(document, section, bufferText.join('\n\n'), chunks.length, sourceSegment));
+    }
     }
   }
 
@@ -111,35 +115,86 @@ function splitIntoSections(text) {
   return sections.length ? sections : [{ heading: 'Untitled section', body: text }];
 }
 
-function makeChunk(document, section, text, index) {
+function makeChunk(document, section, text, index, sourceSegment) {
   const cleaned = normalizeText(text);
   const tokens = tokenize(cleaned);
   const counts = Object.fromEntries(termCounts(tokens));
   const embeddedAt = nowIso();
+  const offsets = chunkOffsets(document.text, cleaned, sourceSegment);
+  const page = sourceSegment.pageNumber ?? null;
 
   return {
     id: id('chk'),
+    stableChunkId: stableChunkIdentifier(document, cleaned, section.heading, page),
     projectId: document.projectId || null,
     documentId: document.id,
     documentTitle: document.title,
+    sourceType: document.sourceType,
+    documentMetadata: searchableDocumentMetadata(document.metadata),
     index,
     label: `${document.title} / ${section.heading} / C${index + 1}`,
     heading: section.heading,
     section: section.heading,
-    page: estimatePage(index),
+    page,
+    pageStart: page,
+    pageEnd: page,
+    pageNumbersExact: sourceSegment.pageNumbersExact === true,
+    characterStart: offsets.start,
+    characterEnd: offsets.end,
     text: cleaned,
     tokenCount: tokenize(cleaned, { keepStopwords: true }).length,
     terms: tokens,
     termCounts: counts,
     embedding: embedText(cleaned),
+    embeddingProvider: 'local',
     embeddingModel: EMBEDDING_MODEL,
+    embeddingDimensions: EMBEDDING_DIMENSIONS,
     embeddedAt,
     createdAt: embeddedAt
   };
 }
 
-function estimatePage(index) {
-  return Math.floor(index / 3) + 1;
+function sourceSegmentsForDocument(document) {
+  const spans = Array.isArray(document.metadata?.pageSpans) ? document.metadata.pageSpans : [];
+  if (!spans.length) {
+    return [{
+      text: document.text,
+      pageNumber: null,
+      pageNumbersExact: false,
+      characterStart: 0,
+      characterEnd: document.text.length
+    }];
+  }
+
+  return spans.map((span) => ({
+    text: document.text.slice(span.characterStart, span.characterEnd),
+    pageNumber: span.pageNumber ?? null,
+    pageNumbersExact: span.exact === true,
+    characterStart: span.characterStart,
+    characterEnd: span.characterEnd
+  }));
+}
+
+function chunkOffsets(documentText, chunkText, sourceSegment) {
+  const relative = sourceSegment.text.indexOf(chunkText);
+  if (relative < 0) {
+    return { start: null, end: null };
+  }
+  const start = sourceSegment.characterStart + relative;
+  return { start, end: start + chunkText.length };
+}
+
+export function stableChunkIdentifier(document, text, section, page) {
+  const value = [document.checksum, page ?? 'unknown', section, text].join('\n');
+  return `sha256:${createHash('sha256').update(value).digest('hex')}`;
+}
+
+function searchableDocumentMetadata(metadata = {}) {
+  return Object.fromEntries(
+    ['collection', 'department', 'version', 'effectiveDate', 'sensitivity', 'sourceUri', 'tags']
+      .filter((key) => metadata[key] !== undefined)
+      .map((key) => [key, metadata[key]])
+  );
 }
 
 function cleanTitle(title) {

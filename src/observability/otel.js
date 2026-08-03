@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { fetchNoRedirect } from '../security/http-client.js';
 
 const OTLP_CONTENT_TYPE = 'application/json';
 
@@ -107,7 +108,9 @@ function describeStep(step, run, options) {
   if (type === 'query_rewrite') {
     addContentAttribute(descriptor.attributes, 'input.value', run.question, includeContent);
     addContentAttribute(descriptor.attributes, 'output.value', run.query?.rewritten, includeContent);
-    descriptor.attributes.push(jsonAttribute('raglens.query.expansions', run.query?.expansions || []));
+    descriptor.attributes.push(includeContent
+      ? jsonAttribute('raglens.query.expansions', run.query?.expansions || [])
+      : doubleAttribute('raglens.query.expansion_count', run.query?.expansions?.length || 0));
   }
 
   if (type === 'retrieval') {
@@ -121,7 +124,7 @@ function describeStep(step, run, options) {
   }
 
   if (type === 'guardrail') {
-    descriptor.attributes.push(jsonAttribute('tracelens.failure_notes', failureNotes(run.warnings)));
+    descriptor.attributes.push(jsonAttribute('tracelens.failure_notes', failureNotes(run.warnings, includeContent)));
   }
 
   if (type === 'prompt') {
@@ -149,7 +152,7 @@ function describeStep(step, run, options) {
     descriptor.attributes.push(
       jsonAttribute('tracelens.evaluations', exportedEvaluations(run)),
       jsonAttribute('tracelens.answer.claims', exportedClaims(run, includeContent)),
-      jsonAttribute('tracelens.failure_notes', failureNotes(run.warnings))
+      jsonAttribute('tracelens.failure_notes', failureNotes(run.warnings, includeContent))
     );
   }
 
@@ -198,10 +201,14 @@ function retrievalDocuments(run, includeContent) {
     content: includeContent ? item.chunk?.text || '' : '[content omitted by exporter]',
     score: Number(item.score || 0),
     metadata: {
-      name: item.document?.title || item.chunk?.documentTitle || item.chunkId,
+      name: includeContent ? item.document?.title || item.chunk?.documentTitle || item.chunkId : '[metadata omitted by exporter]',
       chunk_id: item.chunkId,
-      section: item.chunk?.section || item.chunk?.heading || '',
+      stable_chunk_id: item.chunk?.stableChunkId || item.chunkId,
+      section: includeContent ? item.chunk?.section || item.chunk?.heading || '' : '',
       page: item.chunk?.page || null,
+      page_start: item.chunk?.pageStart ?? item.chunk?.page ?? null,
+      page_end: item.chunk?.pageEnd ?? item.chunk?.page ?? null,
+      page_numbers_exact: item.chunk?.pageNumbersExact === true,
       checksum: item.document?.checksum || '',
       sensitivity: 'internal',
       rank: Number(item.rank || 0),
@@ -234,16 +241,18 @@ function exportedEvaluations(run) {
     contextRelevance: numberMetric(metrics.contextRelevance),
     retrievalConfidence: numberMetric(metrics.retrievalConfidence),
     precisionAtK: numberMetric(metrics.precisionAtK),
+    hitRateAtK: numberMetric(metrics.hitRateAtK ?? metrics.recallAtK),
     mrr: numberMetric(metrics.mrr),
+    ndcgAtK: numberMetric(metrics.ndcgAtK),
     answerFocus: numberMetric(metrics.answerFocus)
   };
 }
 
-function failureNotes(warnings = []) {
+function failureNotes(warnings = [], includeContent = false) {
   return warnings.map((warning) => ({
     type: warning.type || 'raglens-warning',
     severity: normalizeSeverity(warning.severity),
-    message: warning.message || 'RAGLens reported a run warning.',
+    message: includeContent ? warning.message || 'RAGLens reported a run warning.' : 'Warning details omitted by exporter.',
     stepId: warning.stepId || '',
     evidenceIds: [warning.chunkId].filter(Boolean)
   }));
@@ -298,7 +307,7 @@ export async function exportOtlpTrace(run, config = {}) {
   const timeout = setTimeout(() => controller.abort(), Number(config.timeoutMs || 5_000));
 
   try {
-    const response = await fetchImpl(config.endpoint, {
+    const response = await fetchNoRedirect(fetchImpl, config.endpoint, {
       method: 'POST',
       headers: {
         ...config.headers,
@@ -362,8 +371,7 @@ function questionTraceAttributes(run, options = {}) {
     };
   }
   return {
-    questionHash: contentHash(run.question),
-    questionLength: String(run.question || '').length
+    questionContentIncluded: false
   };
 }
 
@@ -372,13 +380,8 @@ function questionOtlpAttributes(run, options = {}) {
     return [stringAttribute('raglens.question', run.question)];
   }
   return [
-    stringAttribute('raglens.question_hash', contentHash(run.question)),
-    doubleAttribute('raglens.question_length', String(run.question || '').length)
+    boolAttribute('raglens.question_content_included', false)
   ];
-}
-
-function contentHash(value) {
-  return createHash('sha256').update(String(value || '')).digest('hex').slice(0, 16);
 }
 
 function stringAttribute(key, value) {

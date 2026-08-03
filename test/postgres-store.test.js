@@ -17,7 +17,8 @@ test('createRaglensStore keeps JSON as the default and selects Postgres when con
     RAGLENS_PORT: '0',
     RAGLENS_DATA_DIR: './data-test',
     RAGLENS_STORAGE_DRIVER: 'postgres',
-    RAGLENS_DATABASE_URL: 'postgres://raglens:secret@db.example.test/raglens'
+    RAGLENS_DATABASE_URL: 'postgres://raglens:secret@db.example.test/raglens',
+    RAGLENS_DATABASE_SSL: 'true'
   });
 
   assert.ok(createRaglensStore(jsonConfig) instanceof RaglensStore);
@@ -95,11 +96,17 @@ test('loadStateFromPostgres maps project-scoped rows into normalized state', asy
                 project_id: chunk.projectId,
                 document_id: chunk.documentId,
                 document_title: chunk.documentTitle,
+                stable_chunk_id: chunk.stableChunkId,
                 chunk_index: chunk.index,
                 label: chunk.label,
                 heading: chunk.heading,
                 section: chunk.section,
                 page: chunk.page,
+                page_start: chunk.pageStart,
+                page_end: chunk.pageEnd,
+                page_numbers_exact: chunk.pageNumbersExact,
+                character_start: chunk.characterStart,
+                character_end: chunk.characterEnd,
                 text: chunk.text,
                 token_count: chunk.tokenCount,
                 terms: chunk.terms,
@@ -199,7 +206,7 @@ test('syncStateToPostgres writes a project-scoped transaction with cleanup and p
   assert.equal(client.released, true);
   assert.ok(client.calls.some((call) => call.text.includes('DELETE FROM raglens_documents')));
   assert.ok(client.calls.some((call) => call.text.includes('INSERT INTO raglens_projects')));
-  assert.ok(client.calls.some((call) => call.text.includes('$14::vector')));
+  assert.ok(client.calls.some((call) => call.text.includes('$20::vector')));
   assert.ok(client.calls.some((call) => call.text.includes('INSERT INTO raglens_feedback')));
   assert.ok(client.calls.every((call) => !call.text.includes('undefined') && !call.text.includes('NaN')));
 });
@@ -208,11 +215,13 @@ test('retrieveContextFromPostgres maps pgvector search rows into pipeline retrie
   const demo = createDemoState();
   const chunk = demo.chunks[0];
   const pool = fakePool((text, values) => {
-    assert.match(text, /embedding <=> q\.embedding/);
+    assert.match(text, /embedding::vector\(64\) <=> q\.embedding/);
     assert.equal(values[0], demo.activeProjectId);
     assert.ok(values[1].includes('delivery'));
     assert.equal(values[3], 'hybrid');
-    assert.equal(values[5], 3);
+    assert.equal(values[5], 24);
+    assert.equal(values[6], 'local-hash-embedding-v1');
+    assert.equal(values[7], 64);
 
     return {
       rows: [

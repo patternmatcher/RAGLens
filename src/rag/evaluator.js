@@ -14,8 +14,14 @@ const SENSITIVE_PATTERNS = [
   /\b\d{3}[-.\s]?\d{2}[-.\s]?\d{4}\b/
 ];
 
-export function evaluateRun({ question, answerText, citations, retrieved, expectedSource, expectedSources, expectedAnswer }) {
-  const claims = splitClaims(answerText).map((text, index) =>
+const UNSAFE_QUERY_PATTERNS = [
+  /\b(?:private|secret|api|signing|encryption)\s+key\b/i,
+  /\b(?:reveal|dump|export|list)\b.{0,40}\b(?:payroll|credentials?|secrets?|personal records?)\b/i,
+  /\bignore\b.{0,30}\b(?:polic(?:y|ies)|instructions?|controls?)\b/i
+];
+
+export function evaluateRun({ question, answerText, citations, retrieved, retrievalMatches = retrieved, expectedSource, expectedSources, expectedAnswer, abstained = false }) {
+  const claims = (abstained ? [] : splitClaims(answerText)).map((text, index) =>
     evaluateClaim(text, index, citations, retrieved)
   );
 
@@ -34,7 +40,7 @@ export function evaluateRun({ question, answerText, citations, retrieved, expect
   const queryTerms = uniqueTerms(question);
   const answerFocus = queryTerms.length ? jaccard(answerTerms, queryTerms) : 0;
   const normalizedExpectedSources = normalizeExpectedSources(expectedSources ?? expectedSource);
-  const evalMetrics = computeGroundTruthMetrics(retrieved, normalizedExpectedSources);
+  const evalMetrics = computeGroundTruthMetrics(retrievalMatches, normalizedExpectedSources);
   const expectedAnswerMetrics = computeExpectedAnswerMetrics(answerText, expectedAnswer);
   const metrics = {
     retrievalConfidence: round(retrievalConfidence),
@@ -46,14 +52,17 @@ export function evaluateRun({ question, answerText, citations, retrieved, expect
     evalAvailable: normalizedExpectedSources.length > 0,
     precisionAtK: evalMetrics.precisionAtK,
     recallAtK: evalMetrics.recallAtK,
+    hitRateAtK: evalMetrics.hitRateAtK,
     mrr: evalMetrics.mrr,
+    ndcgAtK: evalMetrics.ndcgAtK,
     expectedSourceCount: evalMetrics.expectedSourceCount,
     expectedSourceHits: evalMetrics.expectedSourceHits,
     sourceRecallAtK: evalMetrics.sourceRecallAtK,
     allSourceRecallAtK: evalMetrics.allSourceRecallAtK,
     expectedAnswerAvailable: Boolean(expectedAnswer),
     expectedAnswerCoverage: expectedAnswerMetrics.coverage,
-    expectedAnswerSimilarity: expectedAnswerMetrics.similarity
+    expectedAnswerSimilarity: expectedAnswerMetrics.similarity,
+    abstained
   };
   const warnings = buildWarnings({ claims, retrieved, redundancy, retrievalConfidence, expectedAnswerMetrics });
 
@@ -68,7 +77,7 @@ export function evaluateRun({ question, answerText, citations, retrieved, expect
 
 export function inspectChunksForRisks(chunks) {
   return chunks.flatMap((chunk) => {
-    const hits = INJECTION_PATTERNS.filter((pattern) => pattern.test(chunk.text));
+    const hits = INJECTION_PATTERNS.filter((pattern) => pattern.test(inspectionText(chunk)));
     return hits.length
       ? [
           {
@@ -76,7 +85,7 @@ export function inspectChunksForRisks(chunks) {
             label: chunk.label,
             severity: 'high',
             type: 'prompt-injection',
-            message: 'Document text contains prompt-injection-like language.'
+            message: 'Document context contains prompt-injection-like language.'
           }
         ]
       : [];
@@ -85,7 +94,7 @@ export function inspectChunksForRisks(chunks) {
 
 export function inspectChunksForSensitiveData(chunks) {
   return chunks.flatMap((chunk) => {
-    const hits = SENSITIVE_PATTERNS.filter((pattern) => pattern.test(chunk.text));
+    const hits = SENSITIVE_PATTERNS.filter((pattern) => pattern.test(inspectionText(chunk)));
     return hits.length
       ? [
           {
@@ -98,6 +107,27 @@ export function inspectChunksForSensitiveData(chunks) {
         ]
       : [];
   });
+}
+
+function inspectionText(chunk) {
+  return [
+    chunk?.documentTitle,
+    chunk?.heading,
+    chunk?.section,
+    chunk?.label,
+    chunk?.documentMetadata?.sourceUri,
+    chunk?.text
+  ].filter(Boolean).join('\n');
+}
+
+export function inspectQuestionForRisks(question) {
+  return UNSAFE_QUERY_PATTERNS.some((pattern) => pattern.test(String(question || '')))
+    ? [{
+        severity: 'high',
+        type: 'unsafe-query-intent',
+        message: 'The query requests secret or sensitive material, or attempts to bypass policy. Retrieval and fallback output were withheld.'
+      }]
+    : [];
 }
 
 function evaluateClaim(text, index, citations, retrieved) {
@@ -264,7 +294,9 @@ function computeGroundTruthMetrics(retrieved, expectedSources) {
     return {
       precisionAtK: 0,
       recallAtK: 0,
+      hitRateAtK: 0,
       mrr: 0,
+      ndcgAtK: 0,
       expectedSourceCount: 0,
       expectedSourceHits: 0,
       sourceRecallAtK: 0,
@@ -273,9 +305,7 @@ function computeGroundTruthMetrics(retrieved, expectedSources) {
   }
 
   const expected = expectedSources.map((source) => source.toLowerCase());
-  const relevantRanks = retrieved
-    .filter((item) => matchesExpectedSource(item.chunk?.documentTitle, expected))
-    .map((item) => item.rank);
+  const relevantRanks = retrieved.filter((item) => matchesExpectedSource(item.chunk?.documentTitle, expected)).map((item) => item.rank);
   const expectedSourceHits = expected.filter((source) => retrieved.some(
     (item) => String(item.chunk?.documentTitle || '').toLowerCase().includes(source)
   )).length;
@@ -283,12 +313,30 @@ function computeGroundTruthMetrics(retrieved, expectedSources) {
   return {
     precisionAtK: round(relevantRanks.length / Math.max(1, retrieved.length)),
     recallAtK: relevantRanks.length ? 1 : 0,
+    hitRateAtK: relevantRanks.length ? 1 : 0,
     mrr: relevantRanks.length ? round(1 / Math.min(...relevantRanks)) : 0,
+    ndcgAtK: computeNdcg(retrieved, expected),
     expectedSourceCount: expected.length,
     expectedSourceHits,
     sourceRecallAtK: round(expectedSourceHits / expected.length),
     allSourceRecallAtK: expectedSourceHits === expected.length ? 1 : 0
   };
+}
+
+function computeNdcg(retrieved, expectedSources) {
+  const seenSources = new Set();
+  const relevance = retrieved.map((item) => {
+    const title = String(item.chunk?.documentTitle || '').toLowerCase();
+    const source = expectedSources.find((expected) => title.includes(expected));
+    if (!source || seenSources.has(source)) return 0;
+    seenSources.add(source);
+    return 1;
+  });
+  const dcg = relevance.reduce((sum, relevant, index) => sum + relevant / Math.log2(index + 2), 0);
+  const idealCount = Math.min(expectedSources.length, retrieved.length);
+  const idcg = Array.from({ length: idealCount }, (_, index) => 1 / Math.log2(index + 2))
+    .reduce((sum, value) => sum + value, 0);
+  return idcg ? round(dcg / idcg) : 0;
 }
 
 function normalizeExpectedSources(value) {

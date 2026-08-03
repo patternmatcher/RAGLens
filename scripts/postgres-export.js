@@ -3,7 +3,6 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadConfig } from '../src/config.js';
 import { createDemoState } from '../src/demo.js';
-import { EMBEDDING_DIMENSIONS } from '../src/rag/embedding.js';
 
 export function exportStateToPostgresSql(state) {
   const normalized = normalizeState(state);
@@ -134,17 +133,25 @@ function insertChunks(chunks) {
       'project_id',
       'document_id',
       'document_title',
+      'stable_chunk_id',
       'chunk_index',
       'label',
       'heading',
       'section',
       'page',
+      'page_start',
+      'page_end',
+      'page_numbers_exact',
+      'character_start',
+      'character_end',
       'text',
       'token_count',
       'terms',
       'term_counts',
       'embedding',
+      'embedding_provider',
       'embedding_model',
+      'embedding_dimensions',
       'embedded_at',
       'created_at'
     ],
@@ -153,17 +160,25 @@ function insertChunks(chunks) {
       chunk.projectId,
       chunk.documentId,
       chunk.documentTitle,
+      chunk.stableChunkId || chunk.id,
       numberValue(chunk.index),
       chunk.label,
       chunk.heading || chunk.section || 'Untitled section',
       chunk.section || chunk.heading || 'Untitled section',
       nullableNumber(chunk.page),
+      nullableNumber(chunk.pageStart ?? chunk.page),
+      nullableNumber(chunk.pageEnd ?? chunk.page),
+      chunk.pageNumbersExact === true,
+      nullableNumber(chunk.characterStart),
+      nullableNumber(chunk.characterEnd),
       chunk.text,
       numberValue(chunk.tokenCount),
       jsonValue(chunk.terms || []),
       jsonValue(chunk.termCounts || {}),
       vectorValue(chunk.embedding),
+      chunk.embeddingProvider || 'local',
       chunk.embeddingModel || 'local-hash-embedding-v1',
+      numberValue(chunk.embeddingDimensions || chunk.embedding?.length || 64),
       timestampValue(chunk.embeddedAt),
       timestampValue(chunk.createdAt || chunk.embeddedAt)
     ])
@@ -313,9 +328,9 @@ function jsonValue(value) {
 }
 
 function vectorValue(value) {
-  const vector = Array.isArray(value) && value.length === EMBEDDING_DIMENSIONS
-    ? value
-    : Array.from({ length: EMBEDDING_DIMENSIONS }, () => 0);
+  const vector = Array.isArray(value) && value.length
+    ? value.slice(0, 8_192)
+    : Array.from({ length: 64 }, () => 0);
 
   return {
     type: 'vector',

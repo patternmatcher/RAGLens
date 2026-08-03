@@ -66,6 +66,8 @@ test('extractPdfTextWithFallback can use a configured external command', async (
     assert.equal(result.text, 'External layout text from PDF');
     assert.equal(result.metadata.method, 'external-pdf-text-command');
     assert.equal(result.metadata.externalConfigured, true);
+    assert.equal(result.metadata.pageNumbersExact, true);
+    assert.deepEqual(result.pages, [{ pageNumber: 1, text: 'External layout text from PDF', exact: true }]);
   } finally {
     if (previousSecret === undefined) {
       delete process.env.RAGLENS_OPENAI_API_KEY;
@@ -74,6 +76,19 @@ test('extractPdfTextWithFallback can use a configured external command', async (
     }
     await rm(tempDir, { recursive: true, force: true });
   }
+});
+
+test('external PDF extraction preserves form-feed page boundaries', async () => {
+  const result = await extractPdfTextWithFallback(Buffer.from('%PDF-1.4\n%%EOF', 'latin1'), {
+    command: process.execPath,
+    args: ['-e', "process.stdout.write('First page text\\fSecond page text\\f')", '{input}'],
+    timeoutMs: 5_000
+  });
+
+  assert.equal(result.text, 'First page text\n\nSecond page text');
+  assert.equal(result.metadata.pageCount, 2);
+  assert.equal(result.metadata.pageNumbersExact, true);
+  assert.deepEqual(result.pages.map((page) => page.pageNumber), [1, 2]);
 });
 
 test('extractPdfText caps inflated PDF streams without throwing', () => {
@@ -120,6 +135,8 @@ test('extractPdfTextWithFallback uses internal parser when external command fail
   assert.equal(result.text, 'Fallback PDF text');
   assert.equal(result.metadata.method, 'internal-pdf-parser-fallback');
   assert.equal(result.metadata.externalConfigured, true);
+  assert.equal(result.metadata.pageNumbersExact, false);
+  assert.equal(result.pages[0].pageNumber, null);
   assert.match(result.metadata.externalError, /exit code|Command failed/i);
 });
 

@@ -229,18 +229,22 @@ test('ingestion jobs remain scoped to their queued project', async () => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        projectId: second.activeProjectId,
         title: 'Scoped Queue Fixture',
         sourceType: 'text',
         text: 'Scoped queue text says the private queue answer is cobalt.'
       })
     });
-    await waitForJson(`${base}/api/ingestion-jobs/${job.id}`, (payload) => payload.status === 'completed');
+    await waitForJson(
+      `${base}/api/ingestion-jobs/${job.id}?projectId=${second.activeProjectId}`,
+      (payload) => payload.status === 'completed'
+    );
     const firstAgain = await readJson(`${base}/api/projects/active`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ projectId: first.activeProjectId })
     });
-    const hiddenJob = await fetch(`${base}/api/ingestion-jobs/${job.id}`);
+    const hiddenJob = await fetch(`${base}/api/ingestion-jobs/${job.id}?projectId=${first.activeProjectId}`);
     const secondAgain = await readJson(`${base}/api/projects/active`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
@@ -264,7 +268,7 @@ test('document reindex supports chunk-size comparison workflow', async () => {
     const longText = Array.from({ length: 18 }, (_, index) =>
       `Chunk experiment paragraph ${index + 1} says delivery policy evidence should stay searchable while chunk boundaries change.`
     ).join('\n\n');
-    await readJson(`${base}/api/projects`, {
+    const projectState = await readJson(`${base}/api/projects`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -276,6 +280,7 @@ test('document reindex supports chunk-size comparison workflow', async () => {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        projectId: projectState.activeProjectId,
         chunkTokens: 120,
         overlapTokens: 0
       })
@@ -284,6 +289,7 @@ test('document reindex supports chunk-size comparison workflow', async () => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        projectId: projectState.activeProjectId,
         title: 'Chunk Experiment Note',
         sourceType: 'text',
         text: longText
@@ -293,6 +299,7 @@ test('document reindex supports chunk-size comparison workflow', async () => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        projectId: projectState.activeProjectId,
         question: 'What should stay searchable while chunk boundaries change?',
         topK: 4,
         maxClaims: 2
@@ -302,6 +309,7 @@ test('document reindex supports chunk-size comparison workflow', async () => {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        projectId: projectState.activeProjectId,
         chunkTokens: 40,
         overlapTokens: 0
       })
@@ -309,18 +317,21 @@ test('document reindex supports chunk-size comparison workflow', async () => {
     const reindexed = await readJson(`${base}/api/documents/reindex`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({})
+      body: JSON.stringify({ projectId: projectState.activeProjectId })
     });
     const candidate = await readJson(`${base}/api/query-runs`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        projectId: projectState.activeProjectId,
         question: 'What should stay searchable while chunk boundaries change?',
         topK: 4,
         maxClaims: 2
       })
     });
-    const comparison = await readJson(`${base}/api/compare?left=${baseline.id}&right=${candidate.id}`);
+    const comparison = await readJson(
+      `${base}/api/compare?left=${baseline.id}&right=${candidate.id}&projectId=${projectState.activeProjectId}`
+    );
 
     assert.equal(indexed.chunks.length < reindexed.chunks.length, true);
     assert.equal(reindexed.settings.chunkTokens, 40);
@@ -401,7 +412,7 @@ test('query and prompt secrets are redacted before run persistence', async () =>
   }
 });
 
-test('settings, feedback, OTel, and run bundle endpoints are available', async () => {
+test('settings, feedback, trace exports, and run bundle endpoints are available', async () => {
   const fixture = await startFixtureServer();
 
   try {
@@ -432,6 +443,7 @@ test('settings, feedback, OTel, and run bundle endpoints are available', async (
       })
     });
     const otel = await readJson(`${base}/api/query-runs/${run.id}/otel`);
+    const ragTrace = await readJson(`${base}/api/query-runs/${run.id}/trace`);
     const bundleResponse = await fetch(`${base}/api/query-runs/${run.id}/bundle`);
     const bundle = await bundleResponse.json();
 
@@ -445,6 +457,10 @@ test('settings, feedback, OTel, and run bundle endpoints are available', async (
     assert.equal(feedback.expectedAnswer.includes('expectedsecret123456789'), false);
     assert.ok(feedback.redactions.length >= 2);
     assert.ok(otel.resourceSpans[0].scopeSpans[0].spans.length >= 4);
+    assert.equal(ragTrace.schemaVersion, 'tracelens.rag-trace/v2');
+    assert.equal(ragTrace.runId, run.id);
+    assert.ok(ragTrace.retrieval.stages.length >= 2);
+    assert.equal(ragTrace.privacy.safeToExport, true);
     assert.equal(bundleResponse.ok, true);
     assert.match(bundleResponse.headers.get('content-disposition'), /attachment/);
     assert.equal(bundle.schema, 'raglens.run-bundle.v1');
@@ -553,6 +569,7 @@ test('project API scopes documents and runs by active project', async () => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        projectId: secondProjectId,
         title: 'Orion Project Note',
         sourceType: 'text',
         text: 'Orion-only guidance says the project answer is nebula green.'
@@ -562,6 +579,7 @@ test('project API scopes documents and runs by active project', async () => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        projectId: secondProjectId,
         question: 'What is Orion-only guidance?',
         expectedSource: 'Orion Project Note'
       })
@@ -570,6 +588,7 @@ test('project API scopes documents and runs by active project', async () => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        projectId: secondProjectId,
         question: 'What color is the Orion project answer?',
         topK: 4,
         maxClaims: 2
@@ -580,24 +599,26 @@ test('project API scopes documents and runs by active project', async () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ projectId: firstProjectId })
     });
-    const hiddenRun = await fetch(`${base}/api/query-runs/${run.id}`);
-    const hiddenShare = await fetch(`${base}/api/share/${run.id}`);
-    const hiddenOtel = await fetch(`${base}/api/query-runs/${run.id}/otel`);
-    const hiddenBundle = await fetch(`${base}/api/query-runs/${run.id}/bundle`);
+    const hiddenRun = await fetch(`${base}/api/query-runs/${run.id}?projectId=${firstProjectId}`);
+    const hiddenShare = await fetch(`${base}/api/share/${run.id}?projectId=${firstProjectId}`);
+    const hiddenOtel = await fetch(`${base}/api/query-runs/${run.id}/otel?projectId=${firstProjectId}`);
+    const hiddenBundle = await fetch(`${base}/api/query-runs/${run.id}/bundle?projectId=${firstProjectId}`);
     const hiddenFeedback = await fetch(`${base}/api/query-runs/${run.id}/feedback`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ rating: 'up' })
+      body: JSON.stringify({ projectId: firstProjectId, rating: 'up' })
     });
-    const hiddenDelete = await fetch(`${base}/api/documents/${indexed.document.id}`, {
+    const hiddenDelete = await fetch(`${base}/api/documents/${indexed.document.id}?projectId=${firstProjectId}`, {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' }
     });
-    const hiddenEvalDelete = await fetch(`${base}/api/eval-questions/${evalCheck.id}`, {
+    const hiddenEvalDelete = await fetch(`${base}/api/eval-questions/${evalCheck.id}?projectId=${firstProjectId}`, {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' }
     });
-    const hiddenCompare = await fetch(`${base}/api/compare?left=${firstRun.id}&right=${run.id}`);
+    const hiddenCompare = await fetch(
+      `${base}/api/compare?left=${firstRun.id}&right=${run.id}&projectId=${firstProjectId}`
+    );
     const secondAgain = await readJson(`${base}/api/projects/active`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
@@ -978,8 +999,8 @@ test('provider, cost, and observability status are exposed without leaking secre
       const payload = JSON.parse(options.body);
       const attributes = payload.resourceSpans[0].scopeSpans[0].spans[0].attributes;
       assert.equal(attributes.some((item) => item.key === 'raglens.question'), false);
-      assert.equal(attributes.some((item) => item.key === 'raglens.question_hash'), true);
-      assert.equal(attributes.some((item) => item.key === 'raglens.question_length'), true);
+      assert.equal(attributes.some((item) => item.key === 'raglens.question_hash'), false);
+      assert.equal(attributes.some((item) => item.key === 'raglens.question_length'), false);
       return new Response('', { status: 202 });
     }
   });

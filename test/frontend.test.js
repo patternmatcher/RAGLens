@@ -58,7 +58,8 @@ test('topbar exposes project creation and switching controls', async () => {
   assert.match(html, /id="new-project-button"/);
   assert.match(app, /async function createProject/);
   assert.match(app, /async function switchProject/);
-  assert.match(app, /\/api\/projects\/active/);
+  assert.match(app, /\/api\/state\?projectId=/);
+  assert.doesNotMatch(app, /\/api\/projects\/active/);
 });
 
 test('browser client pins scoped mutations to the selected project', async () => {

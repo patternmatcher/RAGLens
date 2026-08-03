@@ -1,5 +1,3 @@
-import { EMBEDDING_DIMENSIONS } from '../rag/embedding.js';
-
 export const postgresStatements = {
   listProjects() {
     return statement(`
@@ -66,8 +64,59 @@ export const postgresStatements = {
         to_regclass('raglens_documents') AS documents,
         to_regclass('raglens_chunks') AS chunks,
         to_regclass('raglens_query_runs') AS runs,
-        to_regclass('raglens_eval_questions') AS eval_questions
+        to_regclass('raglens_eval_questions') AS eval_questions,
+        to_regclass('raglens_embedding_cache') AS embedding_cache
     `);
+  },
+
+  listEmbeddingCache(projectIds) {
+    return statement(
+      `
+        SELECT project_id AS "projectId", cache_key AS key, provider, model, dimensions,
+          embedding::text AS embedding, created_at AS "createdAt", last_used_at AS "lastUsedAt"
+        FROM raglens_embedding_cache
+        WHERE project_id = ANY($1::text[])
+        ORDER BY last_used_at DESC
+      `,
+      [projectIds]
+    );
+  },
+
+  deleteStaleEmbeddingCache(projectId, keys) {
+    return statement(
+      `
+        DELETE FROM raglens_embedding_cache
+        WHERE project_id = $1 AND NOT (cache_key = ANY($2::text[]))
+      `,
+      [projectId, keys]
+    );
+  },
+
+  insertEmbeddingCache(entry) {
+    return statement(
+      `
+        INSERT INTO raglens_embedding_cache (
+          project_id, cache_key, provider, model, dimensions, embedding, created_at, last_used_at
+        )
+        VALUES ($1, $2, $3, $4, $5, $6::vector, $7::timestamptz, $8::timestamptz)
+        ON CONFLICT (project_id, cache_key) DO UPDATE SET
+          provider = EXCLUDED.provider,
+          model = EXCLUDED.model,
+          dimensions = EXCLUDED.dimensions,
+          embedding = EXCLUDED.embedding,
+          last_used_at = EXCLUDED.last_used_at
+      `,
+      [
+        entry.projectId,
+        entry.key,
+        entry.provider,
+        entry.model,
+        embeddingDimensions(entry.dimensions || entry.embedding?.length),
+        vector(entry.embedding),
+        entry.createdAt,
+        entry.lastUsedAt || entry.createdAt
+      ]
+    );
   },
 
   insertProject(project) {
@@ -183,12 +232,15 @@ export const postgresStatements = {
     return statement(
       `
         INSERT INTO raglens_chunks (
-          id, project_id, document_id, document_title, chunk_index, label, heading, section, page,
-          text, token_count, terms, term_counts, embedding, embedding_model, embedded_at, created_at
+          id, project_id, document_id, document_title, stable_chunk_id, chunk_index, label, heading, section,
+          page, page_start, page_end, page_numbers_exact, character_start, character_end,
+          text, token_count, terms, term_counts, embedding, embedding_provider, embedding_model,
+          embedding_dimensions, embedded_at, created_at
         )
         VALUES (
           $1, $2, $3, $4, $5, $6, $7, $8, $9,
-          $10, $11, $12::jsonb, $13::jsonb, $14::vector, $15, $16::timestamptz, $17::timestamptz
+          $10, $11, $12, $13, $14, $15,
+          $16, $17, $18::jsonb, $19::jsonb, $20::vector, $21, $22, $23, $24::timestamptz, $25::timestamptz
         )
         ON CONFLICT (id) DO NOTHING
       `,
@@ -197,17 +249,25 @@ export const postgresStatements = {
         chunk.projectId,
         chunk.documentId,
         chunk.documentTitle,
+        chunk.stableChunkId || chunk.id,
         number(chunk.index),
         chunk.label,
         chunk.heading || chunk.section || 'Untitled section',
         chunk.section || chunk.heading || 'Untitled section',
         nullableNumber(chunk.page),
+        nullableNumber(chunk.pageStart ?? chunk.page),
+        nullableNumber(chunk.pageEnd ?? chunk.page),
+        chunk.pageNumbersExact === true,
+        nullableNumber(chunk.characterStart),
+        nullableNumber(chunk.characterEnd),
         chunk.text,
         number(chunk.tokenCount),
         json(chunk.terms || []),
         json(chunk.termCounts || {}),
         vector(chunk.embedding),
+        chunk.embeddingProvider || 'local',
         chunk.embeddingModel || 'local-hash-embedding-v1',
+        embeddingDimensions(chunk.embeddingDimensions || chunk.embedding?.length),
         chunk.embeddedAt,
         chunk.createdAt || chunk.embeddedAt
       ]
@@ -292,15 +352,18 @@ export const postgresStatements = {
     const mode = ['keyword', 'vector', 'hybrid'].includes(options.retrievalMode)
       ? options.retrievalMode
       : 'hybrid';
+    const dimensions = embeddingDimensions(options.embeddingDimensions || queryEmbedding?.length);
+    const candidateDepth = Math.min(Math.max(Number(options.candidateDepth || Math.max(24, topK * 4)), topK), 100);
 
     return statement(
       `
         WITH query_input AS (
           SELECT
             $2::text[] AS terms,
-            $3::vector AS embedding,
+            $3::vector(${dimensions}) AS embedding,
             $4::text AS mode,
-            $5::boolean AS rerank
+            $5::boolean AS rerank,
+            $9::jsonb AS filter
         ),
         scored AS (
           SELECT
@@ -308,17 +371,27 @@ export const postgresStatements = {
             c.project_id AS "projectId",
             c.document_id AS "documentId",
             c.document_title AS "documentTitle",
+            c.stable_chunk_id AS "stableChunkId",
             c.chunk_index AS "chunkIndex",
             c.label,
             c.heading,
             c.section,
             c.page,
+            c.page_start AS "pageStart",
+            c.page_end AS "pageEnd",
+            c.page_numbers_exact AS "pageNumbersExact",
+            c.character_start AS "characterStart",
+            c.character_end AS "characterEnd",
             c.text,
             c.token_count AS "tokenCount",
             c.terms,
             c.term_counts AS "termCounts",
             c.embedding::text AS embedding,
+            c.embedding_provider AS "embeddingProvider",
             c.embedding_model AS "embeddingModel",
+            c.embedding_dimensions AS "embeddingDimensions",
+            d.source_type AS "sourceType",
+            d.metadata AS "documentMetadata",
             c.embedded_at AS "embeddedAt",
             c.created_at AS "createdAt",
             count(*) OVER () AS "indexedChunks",
@@ -329,8 +402,9 @@ export const postgresStatements = {
               ELSE COALESCE(array_length(term_stats.matched_terms, 1), 0)::numeric / array_length(q.terms, 1)
             END AS coverage,
             COALESCE(term_stats.lexical_score, 0) AS "lexicalScore",
-            1 - (c.embedding <=> q.embedding) AS "vectorScore"
+            1 - (c.embedding::vector(${dimensions}) <=> q.embedding) AS "vectorScore"
           FROM raglens_chunks c
+          JOIN raglens_documents d ON d.id = c.document_id AND d.project_id = c.project_id
           CROSS JOIN query_input q
           LEFT JOIN LATERAL (
             SELECT
@@ -345,6 +419,30 @@ export const postgresStatements = {
             FROM unnest(q.terms) WITH ORDINALITY AS t(term, ord)
           ) term_stats ON true
           WHERE c.project_id = $1
+            AND c.embedding_model = $7
+            AND c.embedding_dimensions = $8
+            AND (NOT (q.filter ? 'documentIds') OR c.document_id IN (SELECT jsonb_array_elements_text(q.filter -> 'documentIds')))
+            AND (NOT (q.filter ? 'sourceTypes') OR d.source_type IN (SELECT jsonb_array_elements_text(q.filter -> 'sourceTypes')))
+            AND (NOT (q.filter ? 'collections') OR d.metadata ->> 'collection' IN (SELECT jsonb_array_elements_text(q.filter -> 'collections')))
+            AND (NOT (q.filter ? 'departments') OR d.metadata ->> 'department' IN (SELECT jsonb_array_elements_text(q.filter -> 'departments')))
+            AND (NOT (q.filter ? 'versions') OR d.metadata ->> 'version' IN (SELECT jsonb_array_elements_text(q.filter -> 'versions')))
+            AND (NOT (q.filter ? 'sensitivities') OR d.metadata ->> 'sensitivity' IN (SELECT jsonb_array_elements_text(q.filter -> 'sensitivities')))
+            AND (NOT (q.filter ? 'tags') OR EXISTS (
+              SELECT 1 FROM jsonb_array_elements_text(q.filter -> 'tags') AS requested(tag)
+              WHERE COALESCE(d.metadata -> 'tags', '[]'::jsonb) ? requested.tag
+            ))
+            AND (NOT (q.filter ? 'effectiveAfter') OR CASE
+              WHEN d.metadata ->> 'effectiveDate' ~ '^\\d{4}-\\d{2}-\\d{2}$'
+              THEN (d.metadata ->> 'effectiveDate')::date >= (q.filter ->> 'effectiveAfter')::date
+              ELSE FALSE
+            END)
+            AND (NOT (q.filter ? 'effectiveBefore') OR CASE
+              WHEN d.metadata ->> 'effectiveDate' ~ '^\\d{4}-\\d{2}-\\d{2}$'
+              THEN (d.metadata ->> 'effectiveDate')::date <= (q.filter ->> 'effectiveBefore')::date
+              ELSE FALSE
+            END)
+            AND (NOT (q.filter ? 'pageStart') OR c.page_end >= (q.filter ->> 'pageStart')::integer)
+            AND (NOT (q.filter ? 'pageEnd') OR c.page_start <= (q.filter ->> 'pageEnd')::integer)
         ),
         ranked AS (
           SELECT
@@ -373,7 +471,10 @@ export const postgresStatements = {
         vector(queryEmbedding),
         mode,
         options.rerank !== false,
-        topK
+        candidateDepth,
+        options.embeddingModel || 'local-hash-embedding-v1',
+        dimensions,
+        json(options.metadataFilter || {})
       ]
     );
   },
@@ -496,10 +597,11 @@ function json(value) {
 
 function vector(value) {
   const source = Array.isArray(value) ? value : [];
-  const vectorValue = Array.from({ length: EMBEDDING_DIMENSIONS }, (_, index) => {
-    const parsed = Number(source[index] ?? 0);
+  const vectorValue = source.slice(0, 8_192).map((item) => {
+    const parsed = Number(item ?? 0);
     return Number.isFinite(parsed) ? parsed : 0;
   });
+  if (!vectorValue.length) vectorValue.push(0);
   return `[${vectorValue.join(',')}]`;
 }
 
@@ -507,6 +609,11 @@ function textArray(value) {
   return Array.isArray(value)
     ? value.map((item) => String(item || '').trim()).filter(Boolean).slice(0, 64)
     : [];
+}
+
+function embeddingDimensions(value) {
+  const parsed = Number.parseInt(value, 10);
+  return Number.isInteger(parsed) && parsed >= 1 && parsed <= 8_192 ? parsed : 64;
 }
 
 function number(value) {

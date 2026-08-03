@@ -20,9 +20,11 @@ const scenario = await buildTraceLensDemoScenario();
 const files = fileMap(outputDir);
 await writeJson(files.baselineOtlp, scenario.baseline.otlp);
 await writeJson(files.candidateOtlp, scenario.candidate.otlp);
+await writeJson(files.baselineRagTrace, scenario.baseline.ragTrace);
+await writeJson(files.candidateRagTrace, scenario.candidate.ragTrace);
 
-await traceLens('import-openinference', files.baselineOtlp, '--out', files.baselineTrace);
-await traceLens('import-openinference', files.candidateOtlp, '--out', files.candidateTrace);
+await traceLens('import-rag-trace', files.baselineRagTrace, '--out', files.baselineTrace);
+await traceLens('import-rag-trace', files.candidateRagTrace, '--out', files.candidateTrace);
 await traceLens('gate', files.baselineTrace, '--policy', policyFile, '--out', files.baselineGate);
 await traceLens('gate', files.candidateTrace, '--policy', policyFile, '--out', files.candidateGate, { expectedStatus: 1 });
 await traceLens('replay-report', files.baselineTrace, files.candidateTrace, '--out', files.replay, '--markdown', files.replayMarkdown, '--allow-regressions');
@@ -67,6 +69,8 @@ function fileMap(directory) {
   return Object.fromEntries(Object.entries({
     baselineOtlp: 'baseline.raglens-otlp.json',
     candidateOtlp: 'candidate.raglens-otlp.json',
+    baselineRagTrace: 'baseline.rag-trace-v2.json',
+    candidateRagTrace: 'candidate.rag-trace-v2.json',
     baselineTrace: 'baseline.tracelens.json',
     candidateTrace: 'candidate.tracelens.json',
     baselineGate: 'baseline.gate.json',
@@ -90,7 +94,7 @@ function fileMap(directory) {
 function renderSummary(scenario, decision, files) {
   return `# RAGLens To TraceLens Stack Demo
 
-This demonstration runs the RAGLens document and query pipeline twice, exports both runs as rich OTLP, and uses TraceLens to make a release decision.
+This demonstration runs the RAGLens document and query pipeline twice, imports the versioned staged RAG traces into TraceLens, and uses TraceLens to make a release decision. Generic OTLP exports are written beside the RAG traces for comparison.
 
 ## Scenario
 
@@ -115,6 +119,8 @@ The candidate answer is grounded in the chunk it retrieved, but it retrieved the
 
 - Baseline TraceLens trace: ${path.basename(files.baselineTrace)}
 - Candidate TraceLens trace: ${path.basename(files.candidateTrace)}
+- Baseline RAG transport trace: ${path.basename(files.baselineRagTrace)}
+- Candidate RAG transport trace: ${path.basename(files.candidateRagTrace)}
 - Replay report: ${path.basename(files.replayMarkdown)}
 - Evidence report: ${path.basename(files.evidenceMarkdown)}
 - Review workflow: ${path.basename(files.workflowMarkdown)}

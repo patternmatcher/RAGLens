@@ -42,6 +42,7 @@ test('runRagInspection can use an OpenAI-compatible provider and map citations b
   let requestedUrl = '';
   let authHeader = '';
   let requestedMaxTokens = 0;
+  let systemPrompt = '';
 
   const run = await runRagInspection({
     question: 'What caused the unsupported delivery estimates?',
@@ -65,6 +66,7 @@ test('runRagInspection can use an OpenAI-compatible provider and map citations b
           authHeader = options.headers.Authorization;
           const body = JSON.parse(options.body);
           requestedMaxTokens = body.max_tokens;
+          systemPrompt = body.messages[0].content;
           const label = body.messages[1].content.match(/\[(D[A-Z0-9]+:C\d+)\]/)?.[1];
 
           return Response.json({
@@ -92,6 +94,8 @@ test('runRagInspection can use an OpenAI-compatible provider and map citations b
   assert.equal(requestedUrl, 'https://llm.example.test/v1/chat/completions');
   assert.equal(authHeader, 'Bearer test-key');
   assert.equal(requestedMaxTokens, 64);
+  assert.match(systemPrompt, /shortest complete answer/);
+  assert.match(systemPrompt, /do not restate the question/);
   assert.equal(run.config.mode, 'openai-compatible-chat');
   assert.equal(run.config.maxOutputTokens, 64);
   assert.equal(run.usage.totalTokens, 128);

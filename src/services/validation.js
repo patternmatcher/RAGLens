@@ -17,6 +17,15 @@ export const LIMITS = {
   expectedAnswerChars: 4_000
 };
 
+const DOCUMENT_METADATA_FIELDS = new Set([
+  'collection',
+  'department',
+  'version',
+  'effectiveDate',
+  'sensitivity',
+  'sourceUri'
+]);
+
 export function validateDocumentInput(input, state) {
   const title = cleanString(input.title).slice(0, LIMITS.documentTitleChars);
   const sourceType = SOURCE_TYPES.has(input.sourceType) ? input.sourceType : 'text';
@@ -38,7 +47,8 @@ export function validateDocumentInput(input, state) {
   return {
     title,
     sourceType,
-    text
+    text,
+    metadata: validateDocumentMetadata(input.metadata)
   };
 }
 
@@ -69,8 +79,72 @@ export function validateQueryInput(input) {
     promptTemplate: cleanString(input.promptTemplate).slice(0, 4_000),
     promptLoggingEnabled: input.promptLoggingEnabled !== false,
     allowUnsafeProviderEgress: input.allowUnsafeProviderEgress === true,
-    rerank: input.rerank !== false
+    rerank: input.rerank !== false,
+    candidateDepth: clampInt(input.candidateDepth, 1, 100, 24),
+    parentContext: input.parentContext === true,
+    parentContextMaxTokens: clampInt(input.parentContextMaxTokens, 200, 8_000, 1_200),
+    metadataFilter: validateMetadataFilter(input.metadataFilter)
   };
+}
+
+export function validateMetadataFilter(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  return compactObject({
+    documentIds: stringList(value.documentIds, 50, 120),
+    sourceTypes: stringList(value.sourceTypes, 10, 24).filter((item) => SOURCE_TYPES.has(item)),
+    collections: stringList(value.collections, 20, 80),
+    departments: stringList(value.departments, 20, 80),
+    versions: stringList(value.versions, 20, 80),
+    tags: stringList(value.tags, 30, 80),
+    sensitivities: stringList(value.sensitivities, 10, 24),
+    effectiveAfter: canonicalDate(value.effectiveAfter, 'effectiveAfter'),
+    effectiveBefore: canonicalDate(value.effectiveBefore, 'effectiveBefore'),
+    pageStart: nullablePositiveInt(value.pageStart),
+    pageEnd: nullablePositiveInt(value.pageEnd)
+  });
+}
+
+function validateDocumentMetadata(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  const metadata = {};
+  for (const field of DOCUMENT_METADATA_FIELDS) {
+    if (field === 'effectiveDate') continue;
+    const clean = cleanString(value[field]).slice(0, field === 'sourceUri' ? 500 : 120);
+    if (clean) metadata[field] = clean;
+  }
+  const effectiveDate = canonicalDate(value.effectiveDate, 'metadata.effectiveDate');
+  if (effectiveDate) metadata.effectiveDate = effectiveDate;
+  const tags = stringList(value.tags, 30, 80);
+  if (tags.length) metadata.tags = tags;
+  return metadata;
+}
+
+function canonicalDate(value, label) {
+  const date = cleanString(value);
+  if (!date) return undefined;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    throw httpError(400, `${label} must use YYYY-MM-DD.`);
+  }
+  const parsed = new Date(`${date}T00:00:00Z`);
+  if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== date) {
+    throw httpError(400, `${label} must be a valid calendar date.`);
+  }
+  return date;
+}
+
+function stringList(value, maxItems, maxLength) {
+  const items = Array.isArray(value) ? value : value ? [value] : [];
+  return [...new Set(items.map((item) => cleanString(item).slice(0, maxLength)).filter(Boolean))].slice(0, maxItems);
+}
+
+function nullablePositiveInt(value) {
+  if (value === null || value === undefined || value === '') return undefined;
+  const number = Number.parseInt(value, 10);
+  return Number.isInteger(number) && number > 0 ? number : undefined;
+}
+
+function compactObject(value) {
+  return Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined && (!Array.isArray(item) || item.length)));
 }
 
 export function validateSettingsInput(input) {

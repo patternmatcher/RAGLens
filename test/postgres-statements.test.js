@@ -55,8 +55,10 @@ test('postgresStatements expose project-scoped runtime adapter queries', () => {
   assert.match(postgresStatements.assertSchema().text, /to_regclass\('raglens_projects'\)/);
   assert.match(postgresStatements.deleteProjectsNotIn([projectId]).text, /DELETE FROM raglens_projects/);
   assert.match(postgresStatements.deleteDocument(projectId, document.id).text, /WHERE project_id = \$1 AND id = \$2/);
-  assert.match(postgresStatements.insertChunk(chunk).text, /\$14::vector/);
-  assert.match(postgresStatements.searchChunksByVector(projectId, ['delivery'], chunk.embedding).text, /embedding <=> q\.embedding/);
+  assert.match(postgresStatements.insertChunk(chunk).text, /\$20::vector/);
+  assert.match(postgresStatements.searchChunksByVector(projectId, ['delivery'], chunk.embedding).text, /embedding::vector\(64\) <=> q\.embedding/);
+  assert.match(postgresStatements.searchChunksByVector(projectId, ['delivery'], chunk.embedding).text, /embedding_model = \$7/);
+  assert.match(postgresStatements.searchChunksByVector(projectId, ['delivery'], chunk.embedding).text, /\$9::jsonb AS filter/);
   assert.match(postgresStatements.searchChunksByVector(projectId, ['delivery'], chunk.embedding).text, /ORDER BY "rerankScore" DESC/);
   assert.match(postgresStatements.searchChunksByVector(projectId, ['delivery'], chunk.embedding).text, /LIMIT \$6/);
   assert.match(postgresStatements.insertQueryRun(fakeRun(demo)).text, /evidence_snapshot/);
@@ -65,13 +67,12 @@ test('postgresStatements expose project-scoped runtime adapter queries', () => {
   const vectorValue = postgresStatements.insertChunk({
     ...chunk,
     embedding: [1, Number.NaN, '2']
-  }).values[13];
+  }).values[19];
   const vectorItems = vectorValue.slice(1, -1).split(',');
-  assert.equal(vectorItems.length, 64);
+  assert.equal(vectorItems.length, 3);
   assert.equal(vectorItems[0], '1');
   assert.equal(vectorItems[1], '0');
   assert.equal(vectorItems[2], '2');
-  assert.equal(vectorItems[63], '0');
   assert.doesNotMatch(vectorValue, /NaN|undefined/);
 
   const searchStatement = postgresStatements.searchChunksByVector(projectId, ['delivery', null, 'estimate'], [1, Number.NaN], {
@@ -81,8 +82,10 @@ test('postgresStatements expose project-scoped runtime adapter queries', () => {
   assert.equal(searchStatement.values[0], projectId);
   assert.deepEqual(searchStatement.values[1], ['delivery', 'estimate']);
   assert.equal(searchStatement.values[3], 'hybrid');
-  assert.equal(searchStatement.values[5], 20);
-  assert.equal(searchStatement.values[2].slice(1, -1).split(',').length, 64);
+  assert.equal(searchStatement.values[5], 80);
+  assert.equal(searchStatement.values[2].slice(1, -1).split(',').length, 2);
+  assert.equal(searchStatement.values[7], 2);
+  assert.equal(searchStatement.values[8], '{}');
 });
 
 test('postgresStatements use parameter arrays for untrusted values', () => {

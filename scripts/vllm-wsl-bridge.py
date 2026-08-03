@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import hmac
+import ipaddress
 import json
 import math
 import os
@@ -20,12 +21,13 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Local OpenAI-compatible bridge for a vLLM engine under WSL.")
     parser.add_argument("--model", required=True)
     parser.add_argument("--served-model-name", default="local-vllm")
-    parser.add_argument("--host", default="0.0.0.0")
+    parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument("--max-model-len", type=int, default=2048)
     parser.add_argument("--max-num-seqs", type=int, default=1)
     parser.add_argument("--max-num-batched-tokens", type=int, default=2048)
     parser.add_argument("--gpu-memory-utilization", type=float, default=0.88)
+    parser.add_argument("--allow-unauthenticated-network", action="store_true")
     return parser.parse_args()
 
 
@@ -126,6 +128,8 @@ def make_handler(runtime):
 
         def do_GET(self):
             if self.path == "/health":
+                if not self.authorized():
+                    return
                 self.send_json(200, {"ok": True, "model": runtime.model_name})
                 return
             if self.path == "/v1/models":
@@ -317,8 +321,22 @@ def bounded_integer(value, label, minimum, maximum):
     return number
 
 
+def is_loopback_host(host):
+    if host.lower() == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
 def main():
     args = parse_args()
+    if not is_loopback_host(args.host) and not os.environ.get("VLLM_API_KEY") and not args.allow_unauthenticated_network:
+        raise SystemExit(
+            "Non-loopback binding requires VLLM_API_KEY. "
+            "Use --allow-unauthenticated-network only on an isolated trusted network."
+        )
     if args.max_model_len < 256:
         raise SystemExit("--max-model-len must be at least 256.")
     if args.max_num_seqs < 1:

@@ -10,6 +10,7 @@ RAGLens is a local developer tool. The default binding is `127.0.0.1`, and the a
 - Mutating API requests must use `Content-Type: application/json`.
 - Non-loopback binds require a 32+ character `RAGLENS_ADMIN_TOKEN` unless explicitly overridden.
 - When an admin token is configured, every JSON API route except `/api/health` must include `Authorization: Bearer <token>` or `X-RAGLens-Token`.
+- Failed admin-token tracking has a fixed entry cap, expiration, and temporary backoff so attacker-controlled client addresses cannot grow process memory without bound.
 - The browser UI stores the admin token only in `sessionStorage` and sends it as `X-RAGLens-Token` for same-origin API requests.
 - Request bodies are capped at 1.5 MB.
 - Indexed documents are capped at 200,000 characters.
@@ -21,15 +22,21 @@ RAGLens is a local developer tool. The default binding is `127.0.0.1`, and the a
 - OpenAI-compatible provider API keys are read from environment variables only and are not exposed in `/api/state`, workspace settings, run history, OTel exports, or browser storage.
 - The optional Postgres `RAGLENS_DATABASE_URL` is read from environment variables only and is not exposed through the browser API.
 - OpenAI-compatible provider base URLs reject embedded credentials, query strings, fragments, and non-HTTPS remote transport. HTTP is accepted only for loopback hosts and Docker host aliases unless `RAGLENS_ALLOW_UNSAFE_PROVIDER_HTTP=true` is set.
-- Postgres SSL verifies certificates by default when `RAGLENS_DATABASE_SSL=true`; `RAGLENS_ALLOW_INSECURE_DATABASE_SSL=true` is an explicit local-test escape hatch.
+- Remote Postgres is rejected unless certificate-verified TLS is enabled or `RAGLENS_ALLOW_INSECURE_DATABASE_SSL=true` is explicitly set for an isolated local test network.
 - Provider cost rates are optional operator-provided metadata and are exposed as non-secret configuration status in `/api/state`.
 - OTLP export URLs reject embedded credentials, query strings, fragments, and non-HTTPS remote transport. HTTP is accepted only for loopback hosts unless `RAGLENS_ALLOW_UNSAFE_OTEL_HTTP=true` is set.
-- OTLP collector headers are read from environment variables only and are never exposed in `/api/state`, run history, or browser storage. Raw questions are replaced with a hash and length unless `RAGLENS_OTEL_INCLUDE_CONTENT=true` is explicitly set.
+- OTLP collector headers are read from environment variables only and are never exposed in `/api/state`, run history, or browser storage. By default the exporter omits question text and fingerprints, query variants, warning details, document titles, sections, source URIs, prompts, answers, and claim text. Content is included only when `RAGLENS_OTEL_INCLUDE_CONTENT=true` is explicitly set.
+- Remote provider and collector requests refuse redirects. Generation, embedding, query rewrite, reranking, web search, health, metrics, and corpus responses are bounded before parsing or persistence.
+- Configured provider and web-search credentials are treated as known secrets and redacted if an upstream service reflects them in response content or metadata.
 - Full prompt logging is off by default. When enabled for inspection, portable run bundles still omit the full prompt text.
 - Optional external PDF text extraction is disabled by default. When `RAGLENS_PDF_TEXT_COMMAND` is configured, it must be an absolute path. RAGLens runs the trusted local binary without a shell, with a timeout, a temporary working directory, and a minimal environment that excludes RAGLens provider/admin secrets. It falls back to the internal parser on failure.
-- Retrieved chunks are scanned for prompt-injection-like language before generation and surfaced as run warnings.
+- Retrieved chunk bodies, document titles, headings, labels, sections, and source URIs are scanned for prompt-injection-like and sensitive-data-like language before generation.
 - Live provider egress is blocked when retrieved chunks contain prompt-injection-like or sensitive-data-like text. RAGLens falls back to local generation unless a run explicitly sets `allowUnsafeProviderEgress=true`.
 - Vector and embedding risks are tracked in the threat model: stale embeddings, mixed-version indexes, sensitive text in embeddings, and retrieval overexposure are treated as review concerns.
+- Effective-date metadata and filters require real `YYYY-MM-DD` calendar dates. Invalid stored dates fail closed during JSON and Postgres filtering.
+- JSON workspace writes are serialized per file, flushed, and atomically replaced from a unique same-directory temporary file.
+- External corpus downloads use response and expansion limits plus pinned SHA-256 digests. Cached files are verified before reuse.
+- The WSL vLLM bridge binds to loopback by default. Non-loopback binding requires `VLLM_API_KEY` unless the operator supplies the explicit isolated-network override.
 
 ## Non-Goals
 

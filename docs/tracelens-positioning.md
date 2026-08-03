@@ -20,19 +20,21 @@ RAGLens is the local RAG workbench. It is best for creating a real run from docu
 
 ## Handoff
 
-The simplest handoff is rich OTLP telemetry:
+The preferred handoff is the staged RAG trace:
 
 ```bash
-curl http://127.0.0.1:4177/api/query-runs/<run-id>/otel > raglens-otel.json
+curl http://127.0.0.1:4177/api/query-runs/<run-id>/trace > raglens-trace-v2.json
 ```
 
-Then import that OTLP-style payload in TraceLens:
+Then import it in TraceLens:
 
 ```bash
-node src/cli.js import-openinference raglens-otel.json --out exports/raglens-trace.json
+node src/cli.js import-rag-trace raglens-trace-v2.json --out exports/raglens-trace.json
 ```
 
-The contract preserves the rewritten query, retrieval documents and scores, prompt context ids, answer claims and citations, evaluation metrics, usage, privacy posture, and model identity. Raw query, prompt, evidence, answer, and claim text remain opt-in through `RAGLENS_OTEL_INCLUDE_CONTENT=true`.
+The contract preserves query variants, every retrieval stage, evidence provenance and page ranges, embedding and reranker identity, metadata filters, cache state, prompt context ids, abstention or fallback decisions, claims and citations, evaluation metrics, usage, privacy posture, and model identity. Raw content is omitted unless `includeContent=true` is explicitly requested on a trusted local transfer.
+
+OTLP remains available from `/api/query-runs/<run-id>/otel` for generic collectors and framework integrations.
 
 For an end-to-end demonstration, run `npm run stack:demo`. It creates a real baseline and stale-source candidate, imports both, applies the TraceLens release policy, and verifies a redacted review bundle.
 
@@ -48,7 +50,6 @@ The bundle is useful for reviewer handoff because it includes the hydrated run, 
 
 ```text
 RAGLens generates and inspects a concrete RAG run
-An external verifier optionally decomposes and verifies answer claims
 TraceLens monitors, gates, compares, routes, and explains failures
 ```
 
